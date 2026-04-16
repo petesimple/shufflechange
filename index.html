@@ -254,8 +254,6 @@
       gutter: 32,
       midY: 490,
       shooterY: 840,
-      laneTop: 85,
-      laneBottom: 895,
       zones: [
         { y1: 85, y2: 200, value: 1 },
         { y1: 200, y2: 310, value: 2 },
@@ -263,7 +261,7 @@
         { y1: 420, y2: 560, value: 0 },
         { y1: 560, y2: 670, value: 3 },
         { y1: 670, y2: 780, value: 2 },
-        { y1: 780, y2: 895, value: 1 },
+        { y1: 780, y2: 895, value: 1 }
       ]
     };
 
@@ -280,7 +278,7 @@
       dragNow: null,
       animating: false,
       lastScored: false,
-      winner: null,
+      winner: null
     };
 
     const COIN_R = 15;
@@ -290,22 +288,19 @@
 
     function makeCoin(owner, x, y) {
       return {
-        x, y,
+        x,
+        y,
         vx: 0,
         vy: 0,
         r: COIN_R,
         owner,
         face: owner,
-        settled: false,
-        live: false,
-        crossedMidline: false,
-        shotIndex: state.shotsTaken,
+        crossedMidline: false
       };
     }
 
     function createShooterCoin() {
       state.shooterCoin = makeCoin(state.currentPlayer, board.x + board.w / 2, board.shooterY);
-      state.shooterCoin.live = false;
     }
 
     function resetRound() {
@@ -342,6 +337,18 @@
       }
     }
 
+    function roundRect(x, y, w, h, r, fill) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+      ctx.fillStyle = fill;
+      ctx.fill();
+    }
+
     function drawBoard() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -352,7 +359,7 @@
       const laneX = board.x + board.gutter;
       const laneW = board.w - board.gutter * 2;
 
-      board.zones.forEach((zone, index) => {
+      board.zones.forEach((zone) => {
         ctx.strokeStyle = 'rgba(70, 44, 22, 0.28)';
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -393,18 +400,6 @@
       ctx.stroke();
     }
 
-    function roundRect(x, y, w, h, r, fill) {
-      ctx.beginPath();
-      ctx.moveTo(x + r, y);
-      ctx.arcTo(x + w, y, x + w, y + h, r);
-      ctx.arcTo(x + w, y + h, x, y + h, r);
-      ctx.arcTo(x, y + h, x, y, r);
-      ctx.arcTo(x, y, x + w, y, r);
-      ctx.closePath();
-      ctx.fillStyle = fill;
-      ctx.fill();
-    }
-
     function drawCoin(c) {
       ctx.save();
       ctx.beginPath();
@@ -427,7 +422,7 @@
     }
 
     function drawAim() {
-      if (!state.dragging || !state.dragNow || !state.dragStart) return;
+      if (!state.dragging || !state.dragNow || !state.dragStart || !state.shooterCoin) return;
       ctx.save();
       ctx.strokeStyle = 'rgba(255, 209, 102, 0.85)';
       ctx.lineWidth = 3;
@@ -452,7 +447,7 @@
       const source = e.touches ? e.touches[0] : e;
       return {
         x: (source.clientX - rect.left) * scaleX,
-        y: (source.clientY - rect.top) * scaleY,
+        y: (source.clientY - rect.top) * scaleY
       };
     }
 
@@ -484,7 +479,7 @@
     }
 
     function endDrag() {
-      if (!state.dragging || !state.dragStart || !state.dragNow) return;
+      if (!state.dragging || !state.dragStart || !state.dragNow || !state.shooterCoin) return;
       const dx = state.dragStart.x - state.dragNow.x;
       const dy = state.dragStart.y - state.dragNow.y;
       const mag = Math.min(Math.hypot(dx, dy) / 8, MAX_POWER);
@@ -497,7 +492,6 @@
       const angle = Math.atan2(dy, dx);
       state.shooterCoin.vx = Math.cos(angle) * mag;
       state.shooterCoin.vy = Math.sin(angle) * mag;
-      state.shooterCoin.live = true;
       state.coins.push(state.shooterCoin);
       state.shooterCoin = null;
       state.dragging = false;
@@ -516,7 +510,6 @@
       const innerRight = board.x + board.w - board.gutter - c.r;
       const feltLeft = board.x + c.r;
       const feltRight = board.x + board.w - c.r;
-
       const inLeftGully = c.x < innerLeft;
       const inRightGully = c.x > innerRight;
 
@@ -524,7 +517,6 @@
 
       const escapeSpeed = 5.8;
       const gutterDrag = 0.82;
-      const bounceBoost = 0.9;
 
       c.vx *= gutterDrag;
       c.vy *= 0.96;
@@ -532,7 +524,7 @@
       if (inLeftGully) {
         if (c.vx > escapeSpeed) {
           c.x = innerLeft;
-          c.vx *= bounceBoost;
+          c.vx *= 0.9;
         } else {
           c.x = Math.max(feltLeft, c.x);
           if (c.vx < 0) c.vx *= 0.25;
@@ -542,7 +534,7 @@
       if (inRightGully) {
         if (c.vx < -escapeSpeed) {
           c.x = innerRight;
-          c.vx *= bounceBoost;
+          c.vx *= 0.9;
         } else {
           c.x = Math.min(feltRight, c.x);
           if (c.vx > 0) c.vx *= 0.25;
@@ -585,19 +577,6 @@
         c.vy *= -0.9;
       }
     }
-      if (c.x > right) {
-        c.x = right;
-        c.vx *= -0.92;
-      }
-      if (c.y < top) {
-        c.y = top;
-        c.vy *= -0.9;
-      }
-      if (c.y > bottom) {
-        c.y = bottom;
-        c.vy *= -0.9;
-      }
-    }
 
     function resolveCollisions() {
       for (let i = 0; i < state.coins.length; i++) {
@@ -619,7 +598,7 @@
 
             const kx = a.vx - b.vx;
             const ky = a.vy - b.vy;
-            const p = 2 * (nx * kx + ny * ky) / 2;
+            const p = nx * kx + ny * ky;
             a.vx -= p * nx;
             a.vy -= p * ny;
             b.vx += p * nx;
@@ -686,14 +665,11 @@
     function scoreCoin(c) {
       if (coinOutOfBoard(c) || coinTouchesGutter(c)) return 0;
       for (const other of state.coins) {
-        if (other !== c && (coinTouchesGutter(other))) {
+        if (other !== c && coinTouchesGutter(other)) {
           const d = Math.hypot(other.x - c.x, other.y - c.y);
           if (d <= other.r + c.r + 0.5) return 0;
         }
       }
-      const laneTop = board.zones[0].y1;
-      const laneBottom = board.zones[board.zones.length - 1].y2;
-      if (c.y < laneTop || c.y > laneBottom) return 0;
       const zone = board.zones.find(z => c.y >= z.y1 && c.y < z.y2);
       return zone ? zone.value : 0;
     }
