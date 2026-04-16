@@ -251,7 +251,8 @@
       y: 45,
       w: 380,
       h: 890,
-      gutter: 32,
+      gutter: 30,
+      sinkDepth: 12,
       midY: 490,
       shooterY: 840,
       zones: [
@@ -295,7 +296,9 @@
         r: COIN_R,
         owner,
         face: owner,
-        crossedMidline: false
+        crossedMidline: false,
+        sunk: false,
+        depth: 0
       };
     }
 
@@ -349,15 +352,63 @@
       ctx.fill();
     }
 
+    function roundRectStroke(x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+      ctx.stroke();
+    }
+
     function drawBoard() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      roundRect(50, 20, 420, 940, 18, '#caa97a');
-      roundRect(board.x, board.y, board.w, board.h, 14, '#1b5d42');
-      roundRect(board.x + board.gutter, board.y + 8, board.w - board.gutter * 2, board.h - 16, 8, '#ead7b3');
+      const outerX = 48;
+      const outerY = 18;
+      const outerW = 424;
+      const outerH = 944;
+
+      const woodGrad = ctx.createLinearGradient(outerX, outerY, outerX + outerW, outerY + outerH);
+      woodGrad.addColorStop(0, '#d9b17c');
+      woodGrad.addColorStop(0.22, '#be9160');
+      woodGrad.addColorStop(0.48, '#d2a876');
+      woodGrad.addColorStop(0.76, '#b88756');
+      woodGrad.addColorStop(1, '#d6ad79');
+      roundRect(outerX, outerY, outerW, outerH, 22, woodGrad);
+
+      ctx.save();
+      ctx.globalAlpha = 0.14;
+      for (let i = 0; i < 10; i++) {
+        const gx = outerX + 12 + i * 40;
+        ctx.fillStyle = i % 2 === 0 ? '#7b5737' : '#f1cf9f';
+        ctx.fillRect(gx, outerY + 10, 10, outerH - 20);
+      }
+      ctx.restore();
+
+      roundRect(board.x, board.y, board.w, board.h, 16, '#1d6a49');
 
       const laneX = board.x + board.gutter;
+      const laneY = board.y + board.gutter;
       const laneW = board.w - board.gutter * 2;
+      const laneH = board.h - board.gutter * 2;
+
+      const laneGrad = ctx.createLinearGradient(laneX, laneY, laneX + laneW, laneY + laneH);
+      laneGrad.addColorStop(0, '#eddcb8');
+      laneGrad.addColorStop(0.5, '#e6d0a7');
+      laneGrad.addColorStop(1, '#efdcb9');
+      roundRect(laneX, laneY, laneW, laneH, 10, laneGrad);
+
+      ctx.save();
+      ctx.globalAlpha = 0.08;
+      for (let i = 0; i < 9; i++) {
+        const gy = laneY + 20 + i * 90;
+        ctx.fillStyle = i % 2 === 0 ? '#8c6643' : '#f8ebd2';
+        ctx.fillRect(laneX + 8, gy, laneW - 16, 8);
+      }
+      ctx.restore();
 
       board.zones.forEach((zone) => {
         ctx.strokeStyle = 'rgba(70, 44, 22, 0.28)';
@@ -387,7 +438,7 @@
       ctx.fillText('Shuffle Change', laneX + laneW / 2, 490);
       ctx.restore();
 
-      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.moveTo(laneX, board.midY);
@@ -398,6 +449,12 @@
       ctx.moveTo(laneX, board.shooterY + 28);
       ctx.lineTo(laneX + laneW, board.shooterY + 28);
       ctx.stroke();
+
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+      ctx.lineWidth = 2;
+      roundRectStroke(laneX, laneY, laneW, laneH, 10);
+      ctx.restore();
     }
 
     function drawCoin(c) {
@@ -500,9 +557,19 @@
     }
 
     function coinTouchesGutter(c) {
-      const left = board.x + board.gutter;
-      const right = board.x + board.w - board.gutter;
-      return c.x - c.r <= left || c.x + c.r >= right;
+      const laneLeft = board.x + board.gutter;
+      const laneRight = board.x + board.w - board.gutter;
+      const laneTop = board.y + board.gutter;
+      const laneBottom = board.y + board.h - board.gutter;
+      return c.x - c.r <= laneLeft || c.x + c.r >= laneRight || c.y - c.r <= laneTop || c.y + c.r >= laneBottom;
+    }
+
+    function isInGutter(c) {
+      const laneLeft = board.x + board.gutter + c.r;
+      const laneRight = board.x + board.w - board.gutter - c.r;
+      const laneTop = board.y + board.gutter + c.r;
+      const laneBottom = board.y + board.h - board.gutter - c.r;
+      return c.x < laneLeft || c.x > laneRight || c.y < laneTop || c.y > laneBottom;
     }
 
     function applyGutterPhysics(c) {
@@ -555,26 +622,26 @@
     }
 
     function handleWalls(c) {
-      const feltLeft = board.x + c.r;
-      const feltRight = board.x + board.w - c.r;
-      const top = board.y + c.r;
-      const bottom = board.y + board.h - c.r;
+      const frameLeft = board.x + c.r;
+      const frameRight = board.x + board.w - c.r;
+      const frameTop = board.y + c.r;
+      const frameBottom = board.y + board.h - c.r;
 
-      if (c.x < feltLeft) {
-        c.x = feltLeft;
-        c.vx *= -0.45;
+      if (c.x < frameLeft) {
+        c.x = frameLeft;
+        c.vx *= -0.35;
       }
-      if (c.x > feltRight) {
-        c.x = feltRight;
-        c.vx *= -0.45;
+      if (c.x > frameRight) {
+        c.x = frameRight;
+        c.vx *= -0.35;
       }
-      if (c.y < top) {
-        c.y = top;
-        c.vy *= -0.9;
+      if (c.y < frameTop) {
+        c.y = frameTop;
+        c.vy *= -0.35;
       }
-      if (c.y > bottom) {
-        c.y = bottom;
-        c.vy *= -0.9;
+      if (c.y > frameBottom) {
+        c.y = frameBottom;
+        c.vy *= -0.35;
       }
     }
 
@@ -663,9 +730,9 @@
     }
 
     function scoreCoin(c) {
-      if (coinOutOfBoard(c) || coinTouchesGutter(c)) return 0;
+      if (coinOutOfBoard(c) || isInGutter(c)) return 0;
       for (const other of state.coins) {
-        if (other !== c && coinTouchesGutter(other)) {
+        if (other !== c && isInGutter(other)) {
           const d = Math.hypot(other.x - c.x, other.y - c.y);
           if (d <= other.r + c.r + 0.5) return 0;
         }
