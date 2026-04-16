@@ -229,7 +229,7 @@
   </div>
 
   <div class="footerNote">
-    Current prototype assumptions: center logo zone is worth 0, line touch scores the lower value, flipped coins swap owner for the current round, and coins stay live on the board for collisions.
+    Current prototype assumptions: center zone is worth 0, line touch scores the lower value, flipped coins swap owner for the current round, coins stay live on the board for collisions, and the green felt acts like a shallow gully that can trap coins unless they have enough speed to bounce back out.
   </div>
 
   <script>
@@ -370,18 +370,15 @@
           ctx.fillText(String(zone.value), laneX + laneW / 2, cy);
           ctx.restore();
         }
-
-        if (index === 3) {
-          ctx.save();
-          ctx.translate(laneX + laneW / 2, (zone.y1 + zone.y2) / 2);
-          ctx.rotate(-Math.PI / 2);
-          ctx.fillStyle = 'rgba(35, 23, 15, 0.92)';
-          ctx.font = 'bold 32px Arial';
-          ctx.textAlign = 'center';
-          ctx.fillText('Shuffle Change', 0, 0);
-          ctx.restore();
-        }
       });
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(35, 23, 15, 0.88)';
+      ctx.font = 'bold 24px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('Shuffle Change', laneX + laneW / 2, 490);
+      ctx.restore();
 
       ctx.strokeStyle = 'rgba(255,255,255,0.25)';
       ctx.lineWidth = 3;
@@ -514,6 +511,45 @@
       return c.x - c.r <= left || c.x + c.r >= right;
     }
 
+    function applyGutterPhysics(c) {
+      const innerLeft = board.x + board.gutter + c.r;
+      const innerRight = board.x + board.w - board.gutter - c.r;
+      const feltLeft = board.x + c.r;
+      const feltRight = board.x + board.w - c.r;
+
+      const inLeftGully = c.x < innerLeft;
+      const inRightGully = c.x > innerRight;
+
+      if (!inLeftGully && !inRightGully) return;
+
+      const escapeSpeed = 5.8;
+      const gutterDrag = 0.82;
+      const bounceBoost = 0.9;
+
+      c.vx *= gutterDrag;
+      c.vy *= 0.96;
+
+      if (inLeftGully) {
+        if (c.vx > escapeSpeed) {
+          c.x = innerLeft;
+          c.vx *= bounceBoost;
+        } else {
+          c.x = Math.max(feltLeft, c.x);
+          if (c.vx < 0) c.vx *= 0.25;
+        }
+      }
+
+      if (inRightGully) {
+        if (c.vx < -escapeSpeed) {
+          c.x = innerRight;
+          c.vx *= bounceBoost;
+        } else {
+          c.x = Math.min(feltRight, c.x);
+          if (c.vx > 0) c.vx *= 0.25;
+        }
+      }
+    }
+
     function coinOutOfBoard(c) {
       return c.y - c.r > board.y + board.h || c.y + c.r < board.y;
     }
@@ -527,15 +563,28 @@
     }
 
     function handleWalls(c) {
-      const left = board.x + board.gutter + c.r;
-      const right = board.x + board.w - board.gutter - c.r;
+      const feltLeft = board.x + c.r;
+      const feltRight = board.x + board.w - c.r;
       const top = board.y + c.r;
       const bottom = board.y + board.h - c.r;
 
-      if (c.x < left) {
-        c.x = left;
-        c.vx *= -0.92;
+      if (c.x < feltLeft) {
+        c.x = feltLeft;
+        c.vx *= -0.45;
       }
+      if (c.x > feltRight) {
+        c.x = feltRight;
+        c.vx *= -0.45;
+      }
+      if (c.y < top) {
+        c.y = top;
+        c.vy *= -0.9;
+      }
+      if (c.y > bottom) {
+        c.y = bottom;
+        c.vy *= -0.9;
+      }
+    }
       if (c.x > right) {
         c.x = right;
         c.vx *= -0.92;
@@ -618,6 +667,7 @@
         if (Math.abs(c.vx) < STOP_EPS) c.vx = 0;
         if (Math.abs(c.vy) < STOP_EPS) c.vy = 0;
         handleWalls(c);
+        applyGutterPhysics(c);
         maybeFlipCoin(c);
         if (c.y < board.midY) c.crossedMidline = true;
       }
