@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shuffle Change Prototype</title>
+  <style>
+    :root {
+      --bg: #1e1a17;
+      --wood: #c8a472;
+      --wood-dark: #9a7549;
+      --felt: #1b5d42;
+      --lane: #e7d4af;
+      --ink: #23170f;
+      --line: rgba(70, 44, 22, 0.45);
+      --silver: #c6ccd3;
+      --silver-edge: #73787e;
+      --heads: #2e86de;
+      --tails: #e67e22;
+      --panel: rgba(255,255,255,0.08);
+      --panel-border: rgba(255,255,255,0.12);
+      --good: #7ed957;
+      --warn: #ffd166;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: radial-gradient(circle at top, #3a2f28 0%, var(--bg) 55%);
+      color: #f6f0e7;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 18px;
+      gap: 16px;
+    }
+
+    .title {
+      font-size: clamp(1.6rem, 4vw, 2.6rem);
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-align: center;
+    }
+
+    .subtitle {
+      opacity: 0.85;
+      text-align: center;
+      max-width: 760px;
+      line-height: 1.45;
+    }
+
+    .app {
+      width: min(1100px, 100%);
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 18px;
+      padding: 16px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+    }
+
+    .scorebox {
+      display: grid;
+      gap: 12px;
+    }
+
+    .playerCard {
+      border-radius: 14px;
+      padding: 12px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .playerCard.active {
+      outline: 2px solid var(--warn);
+    }
+
+    .playerLabel {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .badge {
+      font-size: 0.78rem;
+      padding: 4px 8px;
+      border-radius: 999px;
+      color: white;
+    }
+
+    .heads { background: var(--heads); }
+    .tails { background: var(--tails); }
+
+    .score {
+      font-size: 2rem;
+      font-weight: 800;
+    }
+
+    .muted {
+      opacity: 0.78;
+      font-size: 0.95rem;
+      line-height: 1.4;
+    }
+
+    .controls {
+      display: grid;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    button {
+      width: 100%;
+      border: 0;
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      background: #efe3cb;
+      color: #23170f;
+    }
+
+    button.secondary {
+      background: rgba(255,255,255,0.1);
+      color: #f6f0e7;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .boardWrap {
+      display: flex;
+      justify-content: center;
+    }
+
+    canvas {
+      width: min(100%, 520px);
+      height: auto;
+      background: transparent;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      display: block;
+    }
+
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .legend div {
+      padding: 10px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.05);
+      font-size: 0.92rem;
+    }
+
+    .footerNote {
+      text-align: center;
+      opacity: 0.75;
+      font-size: 0.9rem;
+      max-width: 760px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 900px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="title">Shuffle Change</div>
+  <div class="subtitle">
+    Prototype build for a digital tabletop version. Drag back from the shooter coin and release to flick. Coins must cross the midline or they replay. First to 21, win by 2.
+  </div>
+
+  <div class="app">
+    <div class="panel scorebox">
+      <div id="roundInfo" class="muted"></div>
+
+      <div id="playerA" class="playerCard active">
+        <div class="playerLabel">
+          <span>Player A</span>
+          <span class="badge heads">Heads</span>
+        </div>
+        <div class="score" id="scoreA">0</div>
+      </div>
+
+      <div id="playerB" class="playerCard">
+        <div class="playerLabel">
+          <span>Player B</span>
+          <span class="badge tails">Tails</span>
+        </div>
+        <div class="score" id="scoreB">0</div>
+      </div>
+
+      <div id="status" class="muted">Player A shoots first.</div>
+
+      <div class="controls">
+        <button id="nextRoundBtn" class="secondary">Score Round</button>
+        <button id="resetRoundBtn" class="secondary">Reset Round</button>
+        <button id="newGameBtn">New Game</button>
+      </div>
+
+      <div class="legend">
+        <div><strong>Scoring:</strong> 1 | 2 | 3 | center 0 | 3 | 2 | 1</div>
+        <div><strong>Gutter:</strong> in gutter or touching gutter = 0</div>
+        <div><strong>Replay:</strong> if coin does not cross midline</div>
+        <div><strong>Change:</strong> if a coin flips sides, it changes owner</div>
+      </div>
+    </div>
+
+    <div class="panel boardWrap">
+      <canvas id="board" width="520" height="980" aria-label="Shuffle Change board"></canvas>
+    </div>
+  </div>
+
+  <div class="footerNote">
+    Current prototype assumptions: center logo zone is worth 0, line touch scores the lower value, flipped coins swap owner for the current round, and coins stay live on the board for collisions.
+  </div>
+
+  <script>
+    const canvas = document.getElementById('board');
+    const ctx = canvas.getContext('2d');
+
+    const scoreAEl = document.getElementById('scoreA');
+    const scoreBEl = document.getElementById('scoreB');
+    const statusEl = document.getElementById('status');
+    const roundInfoEl = document.getElementById('roundInfo');
+    const playerAEl = document.getElementById('playerA');
+    const playerBEl = document.getElementById('playerB');
+    const nextRoundBtn = document.getElementById('nextRoundBtn');
+    const resetRoundBtn = document.getElementById('resetRoundBtn');
+    const newGameBtn = document.getElementById('newGameBtn');
+
+    const board = {
+      x: 70,
+      y: 45,
+      w: 380,
+      h: 890,
+      gutter: 32,
+      midY: 490,
+      shooterY: 840,
+      laneTop: 85,
+      laneBottom: 895,
+      zones: [
+        { y1: 85, y2: 200, value: 1 },
+        { y1: 200, y2: 310, value: 2 },
+        { y1: 310, y2: 420, value: 3 },
+        { y1: 420, y2: 560, value: 0 },
+        { y1: 560, y2: 670, value: 3 },
+        { y1: 670, y2: 780, value: 2 },
+        { y1: 780, y2: 895, value: 1 },
+      ]
+    };
+
+    const state = {
+      scores: { A: 0, B: 0 },
+      round: 1,
+      currentPlayer: 'A',
+      shotsTaken: 0,
+      maxShots: 6,
+      coins: [],
+      shooterCoin: null,
+      dragging: false,
+      dragStart: null,
+      dragNow: null,
+      animating: false,
+      lastScored: false,
+      winner: null,
+    };
+
+    const COIN_R = 15;
+    const FRICTION = 0.985;
+    const STOP_EPS = 0.08;
+    const MAX_POWER = 18;
+
+    function makeCoin(owner, x, y) {
+      return {
+        x, y,
+        vx: 0,
+        vy: 0,
+        r: COIN_R,
+        owner,
+        face: owner,
+        settled: false,
+        live: false,
+        crossedMidline: false,
+        shotIndex: state.shotsTaken,
+      };
+    }
+
+    function createShooterCoin() {
+      state.shooterCoin = makeCoin(state.currentPlayer, board.x + board.w / 2, board.shooterY);
+      state.shooterCoin.live = false;
+    }
+
+    function resetRound() {
+      state.coins = [];
+      state.shotsTaken = 0;
+      state.currentPlayer = state.round % 2 === 1 ? 'A' : 'B';
+      state.lastScored = false;
+      state.winner = null;
+      createShooterCoin();
+      updateUi();
+      draw();
+    }
+
+    function newGame() {
+      state.scores.A = 0;
+      state.scores.B = 0;
+      state.round = 1;
+      resetRound();
+    }
+
+    function updateUi() {
+      scoreAEl.textContent = state.scores.A;
+      scoreBEl.textContent = state.scores.B;
+      roundInfoEl.textContent = `Round ${state.round} • Shot ${Math.min(state.shotsTaken + 1, state.maxShots)} of ${state.maxShots}`;
+      playerAEl.classList.toggle('active', state.currentPlayer === 'A');
+      playerBEl.classList.toggle('active', state.currentPlayer === 'B');
+
+      if (state.winner) {
+        statusEl.textContent = `${state.winner === 'A' ? 'Player A' : 'Player B'} wins the game.`;
+      } else if (state.shotsTaken >= state.maxShots) {
+        statusEl.textContent = 'All six coins are played. Tap Score Round.';
+      } else {
+        statusEl.textContent = `${state.currentPlayer === 'A' ? 'Player A' : 'Player B'} to shoot.`;
+      }
+    }
+
+    function drawBoard() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      roundRect(50, 20, 420, 940, 18, '#caa97a');
+      roundRect(board.x, board.y, board.w, board.h, 14, '#1b5d42');
+      roundRect(board.x + board.gutter, board.y + 8, board.w - board.gutter * 2, board.h - 16, 8, '#ead7b3');
+
+      const laneX = board.x + board.gutter;
+      const laneW = board.w - board.gutter * 2;
+
+      board.zones.forEach((zone, index) => {
+        ctx.strokeStyle = 'rgba(70, 44, 22, 0.28)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(laneX, zone.y1);
+        ctx.lineTo(laneX + laneW, zone.y1);
+        ctx.stroke();
+
+        if (zone.value !== 0) {
+          ctx.save();
+          ctx.fillStyle = 'rgba(35, 23, 15, 0.95)';
+          ctx.font = 'bold 54px Arial';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          const cy = (zone.y1 + zone.y2) / 2;
+          ctx.fillText(String(zone.value), laneX + laneW / 2, cy);
+          ctx.restore();
+        }
+
+        if (index === 3) {
+          ctx.save();
+          ctx.translate(laneX + laneW / 2, (zone.y1 + zone.y2) / 2);
+          ctx.rotate(-Math.PI / 2);
+          ctx.fillStyle = 'rgba(35, 23, 15, 0.92)';
+          ctx.font = 'bold 32px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText('Shuffle Change', 0, 0);
+          ctx.restore();
+        }
+      });
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(laneX, board.midY);
+      ctx.lineTo(laneX + laneW, board.midY);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(laneX, board.shooterY + 28);
+      ctx.lineTo(laneX + laneW, board.shooterY + 28);
+      ctx.stroke();
+    }
+
+    function roundRect(x, y, w, h, r, fill) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+      ctx.fillStyle = fill;
+      ctx.fill();
+    }
+
+    function drawCoin(c) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+      const grad = ctx.createRadialGradient(c.x - 4, c.y - 5, 3, c.x, c.y, c.r + 1);
+      grad.addColorStop(0, '#eef2f5');
+      grad.addColorStop(1, '#949aa2');
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#6b7278';
+      ctx.stroke();
+
+      ctx.fillStyle = c.owner === 'A' ? 'rgba(46,134,222,0.95)' : 'rgba(230,126,34,0.95)';
+      ctx.font = 'bold 11px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(c.face, c.x, c.y + 0.5);
+      ctx.restore();
+    }
+
+    function drawAim() {
+      if (!state.dragging || !state.dragNow || !state.dragStart) return;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 209, 102, 0.85)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(state.shooterCoin.x, state.shooterCoin.y);
+      ctx.lineTo(state.dragNow.x, state.dragNow.y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function draw() {
+      drawBoard();
+      state.coins.forEach(drawCoin);
+      if (state.shotsTaken < state.maxShots && state.shooterCoin) drawCoin(state.shooterCoin);
+      drawAim();
+    }
+
+    function pointFromEvent(e) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const source = e.touches ? e.touches[0] : e;
+      return {
+        x: (source.clientX - rect.left) * scaleX,
+        y: (source.clientY - rect.top) * scaleY,
+      };
+    }
+
+    function dist(a, b) {
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      return Math.hypot(dx, dy);
+    }
+
+    function canShoot() {
+      return !state.animating && !state.winner && state.shotsTaken < state.maxShots;
+    }
+
+    function startDrag(e) {
+      if (!canShoot() || !state.shooterCoin) return;
+      const p = pointFromEvent(e);
+      if (dist(p, state.shooterCoin) <= state.shooterCoin.r + 10) {
+        state.dragging = true;
+        state.dragStart = p;
+        state.dragNow = p;
+        draw();
+      }
+    }
+
+    function moveDrag(e) {
+      if (!state.dragging) return;
+      state.dragNow = pointFromEvent(e);
+      draw();
+    }
+
+    function endDrag() {
+      if (!state.dragging || !state.dragStart || !state.dragNow) return;
+      const dx = state.dragStart.x - state.dragNow.x;
+      const dy = state.dragStart.y - state.dragNow.y;
+      const mag = Math.min(Math.hypot(dx, dy) / 8, MAX_POWER);
+      if (mag < 1) {
+        state.dragging = false;
+        draw();
+        return;
+      }
+
+      const angle = Math.atan2(dy, dx);
+      state.shooterCoin.vx = Math.cos(angle) * mag;
+      state.shooterCoin.vy = Math.sin(angle) * mag;
+      state.shooterCoin.live = true;
+      state.coins.push(state.shooterCoin);
+      state.shooterCoin = null;
+      state.dragging = false;
+      state.animating = true;
+      tick();
+    }
+
+    function coinTouchesGutter(c) {
+      const left = board.x + board.gutter;
+      const right = board.x + board.w - board.gutter;
+      return c.x - c.r <= left || c.x + c.r >= right;
+    }
+
+    function coinOutOfBoard(c) {
+      return c.y - c.r > board.y + board.h || c.y + c.r < board.y;
+    }
+
+    function maybeFlipCoin(c) {
+      const speed = Math.hypot(c.vx, c.vy);
+      if (speed > 7.5 && Math.random() < 0.015) {
+        c.owner = c.owner === 'A' ? 'B' : 'A';
+        c.face = c.owner;
+      }
+    }
+
+    function handleWalls(c) {
+      const left = board.x + board.gutter + c.r;
+      const right = board.x + board.w - board.gutter - c.r;
+      const top = board.y + c.r;
+      const bottom = board.y + board.h - c.r;
+
+      if (c.x < left) {
+        c.x = left;
+        c.vx *= -0.92;
+      }
+      if (c.x > right) {
+        c.x = right;
+        c.vx *= -0.92;
+      }
+      if (c.y < top) {
+        c.y = top;
+        c.vy *= -0.9;
+      }
+      if (c.y > bottom) {
+        c.y = bottom;
+        c.vy *= -0.9;
+      }
+    }
+
+    function resolveCollisions() {
+      for (let i = 0; i < state.coins.length; i++) {
+        for (let j = i + 1; j < state.coins.length; j++) {
+          const a = state.coins[i];
+          const b = state.coins[j];
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const d = Math.hypot(dx, dy);
+          const minD = a.r + b.r;
+          if (d > 0 && d < minD) {
+            const nx = dx / d;
+            const ny = dy / d;
+            const overlap = minD - d;
+            a.x -= nx * overlap / 2;
+            a.y -= ny * overlap / 2;
+            b.x += nx * overlap / 2;
+            b.y += ny * overlap / 2;
+
+            const kx = a.vx - b.vx;
+            const ky = a.vy - b.vy;
+            const p = 2 * (nx * kx + ny * ky) / 2;
+            a.vx -= p * nx;
+            a.vy -= p * ny;
+            b.vx += p * nx;
+            b.vy += p * ny;
+
+            if (Math.random() < 0.08) {
+              a.owner = a.owner === 'A' ? 'B' : 'A';
+              a.face = a.owner;
+            }
+            if (Math.random() < 0.08) {
+              b.owner = b.owner === 'A' ? 'B' : 'A';
+              b.face = b.owner;
+            }
+          }
+        }
+      }
+    }
+
+    function allCoinsStopped() {
+      return state.coins.every(c => Math.hypot(c.vx, c.vy) < STOP_EPS);
+    }
+
+    function finalizeShot() {
+      const lastCoin = state.coins[state.coins.length - 1];
+      if (!lastCoin.crossedMidline) {
+        state.coins.pop();
+        statusEl.textContent = 'Coin did not cross midline. Replay with no penalty.';
+      } else {
+        state.shotsTaken += 1;
+        state.currentPlayer = state.currentPlayer === 'A' ? 'B' : 'A';
+      }
+
+      if (state.shotsTaken < state.maxShots) createShooterCoin();
+      state.animating = false;
+      updateUi();
+      draw();
+    }
+
+    function tick() {
+      for (const c of state.coins) {
+        c.x += c.vx;
+        c.y += c.vy;
+        c.vx *= FRICTION;
+        c.vy *= FRICTION;
+        if (Math.abs(c.vx) < STOP_EPS) c.vx = 0;
+        if (Math.abs(c.vy) < STOP_EPS) c.vy = 0;
+        handleWalls(c);
+        maybeFlipCoin(c);
+        if (c.y < board.midY) c.crossedMidline = true;
+      }
+
+      resolveCollisions();
+      draw();
+
+      if (allCoinsStopped()) {
+        finalizeShot();
+        return;
+      }
+
+      requestAnimationFrame(tick);
+    }
+
+    function scoreCoin(c) {
+      if (coinOutOfBoard(c) || coinTouchesGutter(c)) return 0;
+      for (const other of state.coins) {
+        if (other !== c && (coinTouchesGutter(other))) {
+          const d = Math.hypot(other.x - c.x, other.y - c.y);
+          if (d <= other.r + c.r + 0.5) return 0;
+        }
+      }
+      const laneTop = board.zones[0].y1;
+      const laneBottom = board.zones[board.zones.length - 1].y2;
+      if (c.y < laneTop || c.y > laneBottom) return 0;
+      const zone = board.zones.find(z => c.y >= z.y1 && c.y < z.y2);
+      return zone ? zone.value : 0;
+    }
+
+    function scoreRound() {
+      if (state.shotsTaken < state.maxShots) {
+        statusEl.textContent = 'Play all six legal coins first.';
+        return;
+      }
+      if (state.lastScored) {
+        statusEl.textContent = 'Round already scored. Start next round or new game.';
+        return;
+      }
+
+      let roundA = 0;
+      let roundB = 0;
+      state.coins.forEach(c => {
+        const points = scoreCoin(c);
+        if (c.owner === 'A') roundA += points;
+        else roundB += points;
+      });
+
+      state.scores.A += roundA;
+      state.scores.B += roundB;
+      state.lastScored = true;
+
+      const lead = Math.abs(state.scores.A - state.scores.B);
+      if ((state.scores.A >= 21 || state.scores.B >= 21) && lead >= 2) {
+        state.winner = state.scores.A > state.scores.B ? 'A' : 'B';
+        statusEl.textContent = `Round scored. A +${roundA}, B +${roundB}. ${state.winner === 'A' ? 'Player A' : 'Player B'} wins.`;
+      } else {
+        statusEl.textContent = `Round scored. A +${roundA}, B +${roundB}. Tap Reset Round for next round.`;
+      }
+
+      updateUi();
+    }
+
+    function nextRound() {
+      if (state.winner) return;
+      if (!state.lastScored) {
+        scoreRound();
+        return;
+      }
+      state.round += 1;
+      resetRound();
+    }
+
+    nextRoundBtn.addEventListener('click', nextRound);
+    resetRoundBtn.addEventListener('click', () => {
+      if (!state.lastScored && state.shotsTaken > 0) {
+        if (!confirm('Reset this round and clear all current coins?')) return;
+      }
+      if (state.lastScored) state.round += 1;
+      resetRound();
+    });
+    newGameBtn.addEventListener('click', () => {
+      if (!confirm('Start a new game from zero?')) return;
+      newGame();
+    });
+
+    canvas.addEventListener('mousedown', startDrag);
+    canvas.addEventListener('mousemove', moveDrag);
+    window.addEventListener('mouseup', endDrag);
+    canvas.addEventListener('touchstart', e => { e.preventDefault(); startDrag(e); }, { passive: false });
+    canvas.addEventListener('touchmove', e => { e.preventDefault(); moveDrag(e); }, { passive: false });
+    window.addEventListener('touchend', endDrag, { passive: false });
+
+    newGame();
+  </script>
+</body>
+</html>
