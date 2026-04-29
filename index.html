@@ -24,6 +24,7 @@
     }
 
     * { box-sizing: border-box; }
+
     body {
       margin: 0;
       font-family: Arial, Helvetica, sans-serif;
@@ -282,10 +283,161 @@
       winner: null
     };
 
-    const COIN_R = 15;
+    const COIN_R = 18;
     const FRICTION = 0.985;
     const STOP_EPS = 0.08;
     const MAX_POWER = 18;
+
+    const coinSprites = {};
+
+    function makeCoinSprite(face, owner) {
+      const size = 72;
+      const s = document.createElement('canvas');
+      s.width = size;
+      s.height = size;
+      const g = s.getContext('2d');
+
+      const cx = size / 2;
+      const cy = size / 2;
+      const r = 30;
+
+      g.clearRect(0, 0, size, size);
+
+      g.save();
+      g.shadowColor = 'rgba(0,0,0,0.38)';
+      g.shadowBlur = 8;
+      g.shadowOffsetY = 3;
+
+      const coinGrad = g.createRadialGradient(cx - 10, cy - 12, 4, cx, cy, r + 4);
+      coinGrad.addColorStop(0, '#fff8d8');
+      coinGrad.addColorStop(0.32, '#d9c174');
+      coinGrad.addColorStop(0.68, '#b89645');
+      coinGrad.addColorStop(1, '#6f5524');
+
+      g.beginPath();
+      g.arc(cx, cy, r, 0, Math.PI * 2);
+      g.fillStyle = coinGrad;
+      g.fill();
+      g.restore();
+
+      g.beginPath();
+      g.arc(cx, cy, r, 0, Math.PI * 2);
+      g.lineWidth = 3;
+      g.strokeStyle = '#5b421b';
+      g.stroke();
+
+      g.save();
+      g.translate(cx, cy);
+      for (let i = 0; i < 48; i++) {
+        g.rotate((Math.PI * 2) / 48);
+        g.beginPath();
+        g.moveTo(0, -r);
+        g.lineTo(0, -r + 5);
+        g.lineWidth = 1;
+        g.strokeStyle = 'rgba(60,40,15,0.55)';
+        g.stroke();
+      }
+      g.restore();
+
+      g.beginPath();
+      g.arc(cx, cy, r - 7, 0, Math.PI * 2);
+      g.lineWidth = 1.5;
+      g.strokeStyle = 'rgba(255,245,190,0.75)';
+      g.stroke();
+
+      g.save();
+      g.fillStyle = 'rgba(72,49,20,0.65)';
+      g.strokeStyle = 'rgba(72,49,20,0.75)';
+      g.lineWidth = 2;
+
+      if (face === 'heads') {
+        g.beginPath();
+        g.arc(cx - 1, cy - 8, 8, 0, Math.PI * 2);
+        g.fill();
+
+        g.beginPath();
+        g.moveTo(cx - 9, cy - 1);
+        g.quadraticCurveTo(cx - 1, cy + 10, cx + 10, cy + 5);
+        g.quadraticCurveTo(cx + 4, cy + 18, cx - 12, cy + 17);
+        g.quadraticCurveTo(cx - 15, cy + 7, cx - 9, cy - 1);
+        g.fill();
+
+        g.beginPath();
+        g.arc(cx + 4, cy - 9, 2, 0, Math.PI * 2);
+        g.fillStyle = 'rgba(255,235,160,0.55)';
+        g.fill();
+
+        g.fillStyle = 'rgba(72,49,20,0.5)';
+        g.font = 'bold 7px Georgia';
+        g.textAlign = 'center';
+        g.textBaseline = 'alphabetic';
+        g.fillText('HEADS', cx, cy + 27);
+      } else {
+        g.beginPath();
+        g.moveTo(cx, cy - 17);
+        g.lineTo(cx + 12, cy - 9);
+        g.lineTo(cx + 9, cy + 10);
+        g.lineTo(cx, cy + 19);
+        g.lineTo(cx - 9, cy + 10);
+        g.lineTo(cx - 12, cy - 9);
+        g.closePath();
+        g.stroke();
+
+        g.beginPath();
+        g.moveTo(cx - 4, cy - 4);
+        g.quadraticCurveTo(cx - 18, cy - 10, cx - 22, cy + 2);
+        g.moveTo(cx + 4, cy - 4);
+        g.quadraticCurveTo(cx + 18, cy - 10, cx + 22, cy + 2);
+        g.stroke();
+
+        g.beginPath();
+        g.moveTo(cx - 6, cy + 1);
+        g.lineTo(cx + 6, cy + 1);
+        g.moveTo(cx, cy - 8);
+        g.lineTo(cx, cy + 13);
+        g.stroke();
+
+        g.fillStyle = 'rgba(72,49,20,0.5)';
+        g.font = 'bold 7px Georgia';
+        g.textAlign = 'center';
+        g.textBaseline = 'alphabetic';
+        g.fillText('TAILS', cx, cy + 27);
+      }
+
+      g.restore();
+
+      const ownerColor = owner === 'A' ? 'rgba(46,134,222,0.95)' : 'rgba(230,126,34,0.95)';
+
+      g.beginPath();
+      g.arc(cx, cy, r + 2, 0, Math.PI * 2);
+      g.lineWidth = 4;
+      g.strokeStyle = ownerColor;
+      g.stroke();
+
+      g.beginPath();
+      g.arc(cx, cy, 8, 0, Math.PI * 2);
+      g.fillStyle = ownerColor;
+      g.fill();
+
+      g.fillStyle = 'white';
+      g.font = 'bold 11px Arial';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(owner, cx, cy + 0.5);
+
+      return s;
+    }
+
+    function getCoinSprite(c) {
+      const side = c.face === 'A' ? 'heads' : 'tails';
+      const key = `${side}_${c.owner}`;
+
+      if (!coinSprites[key]) {
+        coinSprites[key] = makeCoinSprite(side, c.owner);
+      }
+
+      return coinSprites[key];
+    }
 
     function makeCoin(owner, x, y) {
       return {
@@ -459,27 +611,29 @@
 
     function drawCoin(c) {
       ctx.save();
-      ctx.beginPath();
-      ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
-      const grad = ctx.createRadialGradient(c.x - 4, c.y - 5, 3, c.x, c.y, c.r + 1);
-      grad.addColorStop(0, '#eef2f5');
-      grad.addColorStop(1, '#949aa2');
-      ctx.fillStyle = grad;
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#6b7278';
-      ctx.stroke();
 
-      ctx.fillStyle = c.owner === 'A' ? 'rgba(46,134,222,0.95)' : 'rgba(230,126,34,0.95)';
-      ctx.font = 'bold 11px Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(c.face, c.x, c.y + 0.5);
+      const sprite = getCoinSprite(c);
+      const speed = Math.hypot(c.vx, c.vy);
+      const squash = Math.max(0.82, 1 - speed * 0.015);
+      const stretch = Math.min(1.08, 1 + speed * 0.006);
+
+      ctx.translate(c.x, c.y);
+      ctx.scale(stretch, squash);
+
+      ctx.drawImage(
+        sprite,
+        -c.r * 1.45,
+        -c.r * 1.45,
+        c.r * 2.9,
+        c.r * 2.9
+      );
+
       ctx.restore();
     }
 
     function drawAim() {
       if (!state.dragging || !state.dragNow || !state.dragStart || !state.shooterCoin) return;
+
       ctx.save();
       ctx.strokeStyle = 'rgba(255, 209, 102, 0.85)';
       ctx.lineWidth = 3;
@@ -502,6 +656,7 @@
       const scaleX = canvas.width / rect.width;
       const scaleY = canvas.height / rect.height;
       const source = e.touches ? e.touches[0] : e;
+
       return {
         x: (source.clientX - rect.left) * scaleX,
         y: (source.clientY - rect.top) * scaleY
@@ -520,7 +675,9 @@
 
     function startDrag(e) {
       if (!canShoot() || !state.shooterCoin) return;
+
       const p = pointFromEvent(e);
+
       if (dist(p, state.shooterCoin) <= state.shooterCoin.r + 10) {
         state.dragging = true;
         state.dragStart = p;
@@ -537,9 +694,11 @@
 
     function endDrag() {
       if (!state.dragging || !state.dragStart || !state.dragNow || !state.shooterCoin) return;
+
       const dx = state.dragStart.x - state.dragNow.x;
       const dy = state.dragStart.y - state.dragNow.y;
       const mag = Math.min(Math.hypot(dx, dy) / 8, MAX_POWER);
+
       if (mag < 1) {
         state.dragging = false;
         draw();
@@ -547,12 +706,15 @@
       }
 
       const angle = Math.atan2(dy, dx);
+
       state.shooterCoin.vx = Math.cos(angle) * mag;
       state.shooterCoin.vy = Math.sin(angle) * mag;
+
       state.coins.push(state.shooterCoin);
       state.shooterCoin = null;
       state.dragging = false;
       state.animating = true;
+
       tick();
     }
 
@@ -561,7 +723,11 @@
       const laneRight = board.x + board.w - board.gutter;
       const laneTop = board.y + board.gutter;
       const laneBottom = board.y + board.h - board.gutter;
-      return c.x - c.r <= laneLeft || c.x + c.r >= laneRight || c.y - c.r <= laneTop || c.y + c.r >= laneBottom;
+
+      return c.x - c.r <= laneLeft ||
+        c.x + c.r >= laneRight ||
+        c.y - c.r <= laneTop ||
+        c.y + c.r >= laneBottom;
     }
 
     function isInGutter(c) {
@@ -569,7 +735,11 @@
       const laneRight = board.x + board.w - board.gutter - c.r;
       const laneTop = board.y + board.gutter + c.r;
       const laneBottom = board.y + board.h - board.gutter - c.r;
-      return c.x < laneLeft || c.x > laneRight || c.y < laneTop || c.y > laneBottom;
+
+      return c.x < laneLeft ||
+        c.x > laneRight ||
+        c.y < laneTop ||
+        c.y > laneBottom;
     }
 
     function applyGutterPhysics(c) {
@@ -577,6 +747,7 @@
       const innerRight = board.x + board.w - board.gutter - c.r;
       const feltLeft = board.x + c.r;
       const feltRight = board.x + board.w - c.r;
+
       const inLeftGully = c.x < innerLeft;
       const inRightGully = c.x > innerRight;
 
@@ -615,6 +786,7 @@
 
     function maybeFlipCoin(c) {
       const speed = Math.hypot(c.vx, c.vy);
+
       if (speed > 7.5 && Math.random() < 0.015) {
         c.owner = c.owner === 'A' ? 'B' : 'A';
         c.face = c.owner;
@@ -631,14 +803,17 @@
         c.x = frameLeft;
         c.vx *= -0.35;
       }
+
       if (c.x > frameRight) {
         c.x = frameRight;
         c.vx *= -0.35;
       }
+
       if (c.y < frameTop) {
         c.y = frameTop;
         c.vy *= -0.35;
       }
+
       if (c.y > frameBottom) {
         c.y = frameBottom;
         c.vy *= -0.35;
@@ -650,14 +825,17 @@
         for (let j = i + 1; j < state.coins.length; j++) {
           const a = state.coins[i];
           const b = state.coins[j];
+
           const dx = b.x - a.x;
           const dy = b.y - a.y;
           const d = Math.hypot(dx, dy);
           const minD = a.r + b.r;
+
           if (d > 0 && d < minD) {
             const nx = dx / d;
             const ny = dy / d;
             const overlap = minD - d;
+
             a.x -= nx * overlap / 2;
             a.y -= ny * overlap / 2;
             b.x += nx * overlap / 2;
@@ -666,6 +844,7 @@
             const kx = a.vx - b.vx;
             const ky = a.vy - b.vy;
             const p = nx * kx + ny * ky;
+
             a.vx -= p * nx;
             a.vy -= p * ny;
             b.vx += p * nx;
@@ -675,6 +854,7 @@
               a.owner = a.owner === 'A' ? 'B' : 'A';
               a.face = a.owner;
             }
+
             if (Math.random() < 0.08) {
               b.owner = b.owner === 'A' ? 'B' : 'A';
               b.face = b.owner;
@@ -690,6 +870,7 @@
 
     function finalizeShot() {
       const lastCoin = state.coins[state.coins.length - 1];
+
       if (!lastCoin.crossedMidline) {
         state.coins.pop();
         statusEl.textContent = 'Coin did not cross midline. Replay with no penalty.';
@@ -699,6 +880,7 @@
       }
 
       if (state.shotsTaken < state.maxShots) createShooterCoin();
+
       state.animating = false;
       updateUi();
       draw();
@@ -708,13 +890,17 @@
       for (const c of state.coins) {
         c.x += c.vx;
         c.y += c.vy;
+
         c.vx *= FRICTION;
         c.vy *= FRICTION;
+
         if (Math.abs(c.vx) < STOP_EPS) c.vx = 0;
         if (Math.abs(c.vy) < STOP_EPS) c.vy = 0;
+
         handleWalls(c);
         applyGutterPhysics(c);
         maybeFlipCoin(c);
+
         if (c.y < board.midY) c.crossedMidline = true;
       }
 
@@ -731,13 +917,16 @@
 
     function scoreCoin(c) {
       if (coinOutOfBoard(c) || isInGutter(c)) return 0;
+
       for (const other of state.coins) {
         if (other !== c && isInGutter(other)) {
           const d = Math.hypot(other.x - c.x, other.y - c.y);
           if (d <= other.r + c.r + 0.5) return 0;
         }
       }
+
       const zone = board.zones.find(z => c.y >= z.y1 && c.y < z.y2);
+
       return zone ? zone.value : 0;
     }
 
@@ -746,6 +935,7 @@
         statusEl.textContent = 'Play all six legal coins first.';
         return;
       }
+
       if (state.lastScored) {
         statusEl.textContent = 'Round already scored. Start next round or new game.';
         return;
@@ -753,10 +943,15 @@
 
       let roundA = 0;
       let roundB = 0;
+
       state.coins.forEach(c => {
         const points = scoreCoin(c);
-        if (c.owner === 'A') roundA += points;
-        else roundB += points;
+
+        if (c.owner === 'A') {
+          roundA += points;
+        } else {
+          roundB += points;
+        }
       });
 
       state.scores.A += roundA;
@@ -764,6 +959,7 @@
       state.lastScored = true;
 
       const lead = Math.abs(state.scores.A - state.scores.B);
+
       if ((state.scores.A >= 21 || state.scores.B >= 21) && lead >= 2) {
         state.winner = state.scores.A > state.scores.B ? 'A' : 'B';
         statusEl.textContent = `Round scored. A +${roundA}, B +${roundB}. ${state.winner === 'A' ? 'Player A' : 'Player B'} wins.`;
@@ -776,22 +972,28 @@
 
     function nextRound() {
       if (state.winner) return;
+
       if (!state.lastScored) {
         scoreRound();
         return;
       }
+
       state.round += 1;
       resetRound();
     }
 
     nextRoundBtn.addEventListener('click', nextRound);
+
     resetRoundBtn.addEventListener('click', () => {
       if (!state.lastScored && state.shotsTaken > 0) {
         if (!confirm('Reset this round and clear all current coins?')) return;
       }
+
       if (state.lastScored) state.round += 1;
+
       resetRound();
     });
+
     newGameBtn.addEventListener('click', () => {
       if (!confirm('Start a new game from zero?')) return;
       newGame();
@@ -800,8 +1002,17 @@
     canvas.addEventListener('mousedown', startDrag);
     canvas.addEventListener('mousemove', moveDrag);
     window.addEventListener('mouseup', endDrag);
-    canvas.addEventListener('touchstart', e => { e.preventDefault(); startDrag(e); }, { passive: false });
-    canvas.addEventListener('touchmove', e => { e.preventDefault(); moveDrag(e); }, { passive: false });
+
+    canvas.addEventListener('touchstart', e => {
+      e.preventDefault();
+      startDrag(e);
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', e => {
+      e.preventDefault();
+      moveDrag(e);
+    }, { passive: false });
+
     window.addEventListener('touchend', endDrag, { passive: false });
 
     newGame();
