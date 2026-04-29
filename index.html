@@ -151,6 +151,7 @@
       touch-action: none;
       user-select: none;
       -webkit-user-select: none;
+      -webkit-touch-callout: none;
       display: block;
     }
 
@@ -294,8 +295,11 @@
     const KITCHEN_Y1 = 780;
     const KITCHEN_Y2 = 895;
     const FLICK_POWER = 0.38;
-    const MIN_FLICK_SPEED = 0.22;
-    const MAX_FLICK_SAMPLES = 8;
+    const MIN_FLICK_SPEED = 0.16;
+    const MAX_FLICK_SAMPLES = 10;
+
+    let activePointerId = null;
+    let lastPointerPoint = null;
 
     const coinSprites = {};
 
@@ -490,13 +494,6 @@
       };
     }
 
-    function isCoinInKitchen(c) {
-      return c.x >= board.x + board.gutter + c.r &&
-        c.x <= board.x + board.w - board.gutter - c.r &&
-        c.y >= KITCHEN_Y1 + c.r &&
-        c.y <= KITCHEN_Y2 - c.r;
-    }
-
     function createShooterCoin() {
       state.shooterCoin = makeCoin(state.currentPlayer, board.x + board.w / 2, board.shooterY);
     }
@@ -512,6 +509,8 @@
       state.dragNow = null;
       state.flickSamples = [];
       state.illegalShot = false;
+      activePointerId = null;
+      lastPointerPoint = null;
       createShooterCoin();
       updateUi();
       draw();
@@ -730,18 +729,11 @@
       const rect = canvas.getBoundingClientRect();
       const scaleX = canvas.width / rect.width;
       const scaleY = canvas.height / rect.height;
-      const source = e.touches ? e.touches[0] : e;
 
       return {
-        x: (source.clientX - rect.left) * scaleX,
-        y: (source.clientY - rect.top) * scaleY
+        x: (e.clientX - rect.left) * scaleX,
+        y: (e.clientY - rect.top) * scaleY
       };
-    }
-
-    function dist(a, b) {
-      const dx = a.x - b.x;
-      const dy = a.y - b.y;
-      return Math.hypot(dx, dy);
     }
 
     function addFlickSample(p) {
@@ -763,12 +755,20 @@
     function startDrag(e) {
       if (!canShoot()) return;
 
+      e.preventDefault();
+
       const p = pointFromEvent(e);
 
       if (!isPointInKitchen(p)) {
         statusEl.textContent = 'Start the coin inside the kitchen. Bottom 1 section only.';
         return;
       }
+
+      activePointerId = e.pointerId;
+
+      try {
+        canvas.setPointerCapture(activePointerId);
+      } catch (err) {}
 
       const start = clampToKitchen(p);
 
@@ -778,6 +778,7 @@
       state.dragNow = start;
       state.flickSamples = [];
       state.illegalShot = false;
+      lastPointerPoint = start;
 
       addFlickSample(start);
       updateUi();
@@ -786,55 +787,54 @@
 
     function moveDrag(e) {
       if (!state.dragging || !state.shooterCoin) return;
+      if (activePointerId !== null && e.pointerId !== activePointerId) return;
+
+      e.preventDefault();
 
       const p = pointFromEvent(e);
+      lastPointerPoint = p;
       state.dragNow = p;
 
+      const clamped = clampToKitchen(p);
+
+      state.shooterCoin.x = clamped.x;
+      state.shooterCoin.y = clamped.y;
+
       if (isPointInKitchen(p)) {
-        state.shooterCoin.x = p.x;
-        state.shooterCoin.y = p.y;
-      } else {
-        const clamped = clampToKitchen(p);
-        state.shooterCoin.x = clamped.x;
-        state.shooterCoin.y = clamped.y;
-        state.illegalShot = true;
+        addFlickSample(p);
       }
 
-      addFlickSample(p);
       draw();
     }
 
     function endDrag(e) {
       if (!state.dragging || !state.shooterCoin) return;
+      if (activePointerId !== null && e.pointerId !== activePointerId) return;
 
-      const p = e ? pointFromEvent(e) : state.dragNow;
+      e.preventDefault();
 
-      if (p) {
-        state.dragNow = p;
-        addFlickSample(p);
-      }
+      const p = pointFromEvent(e);
+      const releasePoint = p || lastPointerPoint || state.dragNow;
 
-      const releaseInKitchen = p && isPointInKitchen(p);
-
-      if (!releaseInKitchen || state.illegalShot) {
-        state.dragging = false;
-        state.dragStart = null;
-        state.dragNow = null;
-        state.flickSamples = [];
-        state.illegalShot = false;
-
-        statusEl.textContent = 'Illegal flick. Release must happen before the coin leaves the kitchen. Replay.';
-        createShooterCoin();
-        draw();
+      if (!releasePoint || !isPointInKitchen(releasePoint)) {
+        cancelFlick('Illegal flick. Release must happen before the coin leaves the kitchen. Replay.');
         return;
       }
 
+      addFlickSample(releasePoint);
+
       const samples = state.flickSamples;
-      let first = samples[0];
+
+      if (samples.length < 2) {
+        cancelFlick('Too short. Start in the kitchen and flick upward.');
+        return;
+      }
+
       let last = samples[samples.length - 1];
+      let first = samples[Math.max(0, samples.length - 5)];
 
       for (let i = samples.length - 1; i >= 0; i--) {
-        if (last.t - samples[i].t > 90) {
+        if (last.t - samples[i].t > 140) {
           first = samples[i];
           break;
         }
@@ -845,15 +845,8 @@
       const rawVy = (last.y - first.y) / elapsed;
       const rawSpeed = Math.hypot(rawVx, rawVy);
 
-      if (rawSpeed < MIN_FLICK_SPEED || rawVy >= -0.03) {
-        state.dragging = false;
-        state.dragStart = null;
-        state.dragNow = null;
-        state.flickSamples = [];
-
-        statusEl.textContent = 'Too soft or wrong direction. Flick upward from the kitchen.';
-        createShooterCoin();
-        draw();
+      if (rawSpeed < MIN_FLICK_SPEED || rawVy >= -0.015) {
+        cancelFlick('Too soft or wrong direction. Flick upward from the kitchen.');
         return;
       }
 
@@ -880,7 +873,34 @@
       state.illegalShot = false;
       state.animating = true;
 
+      cleanupPointer();
+
       tick();
+    }
+
+    function cancelFlick(message) {
+      state.dragging = false;
+      state.dragStart = null;
+      state.dragNow = null;
+      state.flickSamples = [];
+      state.illegalShot = false;
+
+      cleanupPointer();
+
+      statusEl.textContent = message;
+      createShooterCoin();
+      draw();
+    }
+
+    function cleanupPointer() {
+      if (activePointerId !== null) {
+        try {
+          canvas.releasePointerCapture(activePointerId);
+        } catch (err) {}
+      }
+
+      activePointerId = null;
+      lastPointerPoint = null;
     }
 
     function isInGutter(c) {
@@ -1152,23 +1172,13 @@
       newGame();
     });
 
-    canvas.addEventListener('mousedown', startDrag);
-    canvas.addEventListener('mousemove', moveDrag);
-    window.addEventListener('mouseup', endDrag);
-
-    canvas.addEventListener('touchstart', e => {
-      e.preventDefault();
-      startDrag(e);
-    }, { passive: false });
-
-    canvas.addEventListener('touchmove', e => {
-      e.preventDefault();
-      moveDrag(e);
-    }, { passive: false });
-
-    window.addEventListener('touchend', e => {
-      e.preventDefault();
-      endDrag(e);
+    canvas.addEventListener('pointerdown', startDrag, { passive: false });
+    canvas.addEventListener('pointermove', moveDrag, { passive: false });
+    canvas.addEventListener('pointerup', endDrag, { passive: false });
+    canvas.addEventListener('pointercancel', () => {
+      if (state.dragging) {
+        cancelFlick('Flick canceled. Try again from the kitchen.');
+      }
     }, { passive: false });
 
     newGame();
