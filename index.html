@@ -21,6 +21,7 @@
       --panel-border: rgba(255,255,255,0.12);
       --good: #7ed957;
       --warn: #ffd166;
+      --bad: #ff6b6b;
     }
 
     * { box-sizing: border-box; }
@@ -185,7 +186,7 @@
 <body>
   <div class="title">Shuffle Change</div>
   <div class="subtitle">
-    Prototype build for a digital tabletop version. Drag back from the shooter coin and release to flick. Coins must cross the midline or they replay. First to 21, win by 2.
+    Prototype build for a digital tabletop version. Touch anywhere in the kitchen, flick forward, and release before the coin leaves the kitchen. Coins must cross the midline or they replay. First to 21, win by 2.
   </div>
 
   <div class="app">
@@ -208,7 +209,7 @@
         <div class="score" id="scoreB">0</div>
       </div>
 
-      <div id="status" class="muted">Player A shoots first.</div>
+      <div id="status" class="muted">Player A shoots first. Touch in the kitchen and flick upward.</div>
 
       <div class="controls">
         <button id="nextRoundBtn" class="secondary">Score Round</button>
@@ -218,8 +219,8 @@
 
       <div class="legend">
         <div><strong>Scoring:</strong> 1 | 2 | 3 | center 0 | 3 | 2 | 1</div>
-        <div><strong>Gutter:</strong> in gutter or touching gutter = 0</div>
-        <div><strong>Replay:</strong> if coin does not cross midline</div>
+        <div><strong>Kitchen:</strong> bottom 1 section only</div>
+        <div><strong>Legal flick:</strong> release before leaving kitchen</div>
         <div><strong>Change:</strong> if a coin flips sides, it changes owner</div>
       </div>
     </div>
@@ -278,15 +279,23 @@
       dragging: false,
       dragStart: null,
       dragNow: null,
+      flickSamples: [],
       animating: false,
       lastScored: false,
-      winner: null
+      winner: null,
+      illegalShot: false
     };
 
     const COIN_R = 18;
     const FRICTION = 0.985;
     const STOP_EPS = 0.08;
     const MAX_POWER = 18;
+
+    const KITCHEN_Y1 = 780;
+    const KITCHEN_Y2 = 895;
+    const FLICK_POWER = 0.38;
+    const MIN_FLICK_SPEED = 0.22;
+    const MAX_FLICK_SAMPLES = 8;
 
     const coinSprites = {};
 
@@ -454,6 +463,40 @@
       };
     }
 
+    function laneBounds() {
+      return {
+        left: board.x + board.gutter + COIN_R,
+        right: board.x + board.w - board.gutter - COIN_R,
+        top: board.y + board.gutter + COIN_R,
+        bottom: board.y + board.h - board.gutter - COIN_R
+      };
+    }
+
+    function isPointInKitchen(p) {
+      const b = laneBounds();
+
+      return p.x >= b.left &&
+        p.x <= b.right &&
+        p.y >= KITCHEN_Y1 + COIN_R &&
+        p.y <= KITCHEN_Y2 - COIN_R;
+    }
+
+    function clampToKitchen(p) {
+      const b = laneBounds();
+
+      return {
+        x: Math.max(b.left, Math.min(b.right, p.x)),
+        y: Math.max(KITCHEN_Y1 + COIN_R, Math.min(KITCHEN_Y2 - COIN_R, p.y))
+      };
+    }
+
+    function isCoinInKitchen(c) {
+      return c.x >= board.x + board.gutter + c.r &&
+        c.x <= board.x + board.w - board.gutter - c.r &&
+        c.y >= KITCHEN_Y1 + c.r &&
+        c.y <= KITCHEN_Y2 - c.r;
+    }
+
     function createShooterCoin() {
       state.shooterCoin = makeCoin(state.currentPlayer, board.x + board.w / 2, board.shooterY);
     }
@@ -464,6 +507,11 @@
       state.currentPlayer = state.round % 2 === 1 ? 'A' : 'B';
       state.lastScored = false;
       state.winner = null;
+      state.dragging = false;
+      state.dragStart = null;
+      state.dragNow = null;
+      state.flickSamples = [];
+      state.illegalShot = false;
       createShooterCoin();
       updateUi();
       draw();
@@ -487,8 +535,10 @@
         statusEl.textContent = `${state.winner === 'A' ? 'Player A' : 'Player B'} wins the game.`;
       } else if (state.shotsTaken >= state.maxShots) {
         statusEl.textContent = 'All six coins are played. Tap Score Round.';
+      } else if (state.dragging) {
+        statusEl.textContent = 'Flick forward and release before leaving the kitchen.';
       } else {
-        statusEl.textContent = `${state.currentPlayer === 'A' ? 'Player A' : 'Player B'} to shoot.`;
+        statusEl.textContent = `${state.currentPlayer === 'A' ? 'Player A' : 'Player B'} to shoot. Touch anywhere in the kitchen and flick.`;
       }
     }
 
@@ -562,6 +612,11 @@
       }
       ctx.restore();
 
+      ctx.save();
+      ctx.fillStyle = 'rgba(255, 209, 102, 0.16)';
+      ctx.fillRect(laneX, KITCHEN_Y1, laneW, KITCHEN_Y2 - KITCHEN_Y1);
+      ctx.restore();
+
       board.zones.forEach((zone) => {
         ctx.strokeStyle = 'rgba(70, 44, 22, 0.28)';
         ctx.lineWidth = 2;
@@ -590,6 +645,14 @@
       ctx.fillText('Shuffle Change', laneX + laneW / 2, 490);
       ctx.restore();
 
+      ctx.save();
+      ctx.fillStyle = 'rgba(35, 23, 15, 0.72)';
+      ctx.font = 'bold 14px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('KITCHEN', laneX + laneW / 2, KITCHEN_Y2 - 23);
+      ctx.restore();
+
       ctx.strokeStyle = 'rgba(255,255,255,0.18)';
       ctx.lineWidth = 3;
       ctx.beginPath();
@@ -597,10 +660,15 @@
       ctx.lineTo(laneX + laneW, board.midY);
       ctx.stroke();
 
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 209, 102, 0.55)';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([10, 8]);
       ctx.beginPath();
-      ctx.moveTo(laneX, board.shooterY + 28);
-      ctx.lineTo(laneX + laneW, board.shooterY + 28);
+      ctx.moveTo(laneX, KITCHEN_Y1);
+      ctx.lineTo(laneX + laneW, KITCHEN_Y1);
       ctx.stroke();
+      ctx.restore();
 
       ctx.save();
       ctx.strokeStyle = 'rgba(0,0,0,0.12)';
@@ -631,15 +699,22 @@
       ctx.restore();
     }
 
-    function drawAim() {
-      if (!state.dragging || !state.dragNow || !state.dragStart || !state.shooterCoin) return;
+    function drawFlickTrail() {
+      if (!state.dragging || state.flickSamples.length < 2) return;
 
       ctx.save();
-      ctx.strokeStyle = 'rgba(255, 209, 102, 0.85)';
-      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(255, 209, 102, 0.65)';
+      ctx.lineWidth = 4;
+      ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.moveTo(state.shooterCoin.x, state.shooterCoin.y);
-      ctx.lineTo(state.dragNow.x, state.dragNow.y);
+
+      const samples = state.flickSamples;
+      ctx.moveTo(samples[0].x, samples[0].y);
+
+      for (let i = 1; i < samples.length; i++) {
+        ctx.lineTo(samples[i].x, samples[i].y);
+      }
+
       ctx.stroke();
       ctx.restore();
     }
@@ -648,7 +723,7 @@
       drawBoard();
       state.coins.forEach(drawCoin);
       if (state.shotsTaken < state.maxShots && state.shooterCoin) drawCoin(state.shooterCoin);
-      drawAim();
+      drawFlickTrail();
     }
 
     function pointFromEvent(e) {
@@ -669,65 +744,143 @@
       return Math.hypot(dx, dy);
     }
 
+    function addFlickSample(p) {
+      state.flickSamples.push({
+        x: p.x,
+        y: p.y,
+        t: performance.now()
+      });
+
+      while (state.flickSamples.length > MAX_FLICK_SAMPLES) {
+        state.flickSamples.shift();
+      }
+    }
+
     function canShoot() {
       return !state.animating && !state.winner && state.shotsTaken < state.maxShots;
     }
 
     function startDrag(e) {
-      if (!canShoot() || !state.shooterCoin) return;
+      if (!canShoot()) return;
 
       const p = pointFromEvent(e);
 
-      if (dist(p, state.shooterCoin) <= state.shooterCoin.r + 10) {
-        state.dragging = true;
-        state.dragStart = p;
-        state.dragNow = p;
-        draw();
+      if (!isPointInKitchen(p)) {
+        statusEl.textContent = 'Start the coin inside the kitchen. Bottom 1 section only.';
+        return;
       }
-    }
 
-    function moveDrag(e) {
-      if (!state.dragging) return;
-      state.dragNow = pointFromEvent(e);
+      const start = clampToKitchen(p);
+
+      state.shooterCoin = makeCoin(state.currentPlayer, start.x, start.y);
+      state.dragging = true;
+      state.dragStart = start;
+      state.dragNow = start;
+      state.flickSamples = [];
+      state.illegalShot = false;
+
+      addFlickSample(start);
+      updateUi();
       draw();
     }
 
-    function endDrag() {
-      if (!state.dragging || !state.dragStart || !state.dragNow || !state.shooterCoin) return;
+    function moveDrag(e) {
+      if (!state.dragging || !state.shooterCoin) return;
 
-      const dx = state.dragStart.x - state.dragNow.x;
-      const dy = state.dragStart.y - state.dragNow.y;
-      const mag = Math.min(Math.hypot(dx, dy) / 8, MAX_POWER);
+      const p = pointFromEvent(e);
+      state.dragNow = p;
 
-      if (mag < 1) {
+      if (isPointInKitchen(p)) {
+        state.shooterCoin.x = p.x;
+        state.shooterCoin.y = p.y;
+      } else {
+        const clamped = clampToKitchen(p);
+        state.shooterCoin.x = clamped.x;
+        state.shooterCoin.y = clamped.y;
+        state.illegalShot = true;
+      }
+
+      addFlickSample(p);
+      draw();
+    }
+
+    function endDrag(e) {
+      if (!state.dragging || !state.shooterCoin) return;
+
+      const p = e ? pointFromEvent(e) : state.dragNow;
+
+      if (p) {
+        state.dragNow = p;
+        addFlickSample(p);
+      }
+
+      const releaseInKitchen = p && isPointInKitchen(p);
+
+      if (!releaseInKitchen || state.illegalShot) {
         state.dragging = false;
+        state.dragStart = null;
+        state.dragNow = null;
+        state.flickSamples = [];
+        state.illegalShot = false;
+
+        statusEl.textContent = 'Illegal flick. Release must happen before the coin leaves the kitchen. Replay.';
+        createShooterCoin();
         draw();
         return;
       }
 
-      const angle = Math.atan2(dy, dx);
+      const samples = state.flickSamples;
+      let first = samples[0];
+      let last = samples[samples.length - 1];
 
-      state.shooterCoin.vx = Math.cos(angle) * mag;
-      state.shooterCoin.vy = Math.sin(angle) * mag;
+      for (let i = samples.length - 1; i >= 0; i--) {
+        if (last.t - samples[i].t > 90) {
+          first = samples[i];
+          break;
+        }
+      }
+
+      const elapsed = Math.max(16, last.t - first.t);
+      const rawVx = (last.x - first.x) / elapsed;
+      const rawVy = (last.y - first.y) / elapsed;
+      const rawSpeed = Math.hypot(rawVx, rawVy);
+
+      if (rawSpeed < MIN_FLICK_SPEED || rawVy >= -0.03) {
+        state.dragging = false;
+        state.dragStart = null;
+        state.dragNow = null;
+        state.flickSamples = [];
+
+        statusEl.textContent = 'Too soft or wrong direction. Flick upward from the kitchen.';
+        createShooterCoin();
+        draw();
+        return;
+      }
+
+      let vx = rawVx * FLICK_POWER * 60;
+      let vy = rawVy * FLICK_POWER * 60;
+
+      const mag = Math.hypot(vx, vy);
+
+      if (mag > MAX_POWER) {
+        const scale = MAX_POWER / mag;
+        vx *= scale;
+        vy *= scale;
+      }
+
+      state.shooterCoin.vx = vx;
+      state.shooterCoin.vy = vy;
 
       state.coins.push(state.shooterCoin);
       state.shooterCoin = null;
       state.dragging = false;
+      state.dragStart = null;
+      state.dragNow = null;
+      state.flickSamples = [];
+      state.illegalShot = false;
       state.animating = true;
 
       tick();
-    }
-
-    function coinTouchesGutter(c) {
-      const laneLeft = board.x + board.gutter;
-      const laneRight = board.x + board.w - board.gutter;
-      const laneTop = board.y + board.gutter;
-      const laneBottom = board.y + board.h - board.gutter;
-
-      return c.x - c.r <= laneLeft ||
-        c.x + c.r >= laneRight ||
-        c.y - c.r <= laneTop ||
-        c.y + c.r >= laneBottom;
     }
 
     function isInGutter(c) {
@@ -1013,7 +1166,10 @@
       moveDrag(e);
     }, { passive: false });
 
-    window.addEventListener('touchend', endDrag, { passive: false });
+    window.addEventListener('touchend', e => {
+      e.preventDefault();
+      endDrag(e);
+    }, { passive: false });
 
     newGame();
   </script>
