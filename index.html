@@ -187,7 +187,7 @@
 <body>
   <div class="title">Shuffle Change</div>
   <div class="subtitle">
-    Prototype build for a digital tabletop version. Touch anywhere in the kitchen, flick forward, and release before the coin leaves the kitchen. Coins must cross the midline or they replay. First to 21, win by 2.
+    Prototype build for a digital tabletop version. Touch anywhere in the kitchen, flick forward through the kitchen line, and release naturally. Coins must cross the midline or they replay. First to 21, win by 2.
   </div>
 
   <div class="app">
@@ -221,7 +221,7 @@
       <div class="legend">
         <div><strong>Scoring:</strong> 1 | 2 | 3 | center 0 | 3 | 2 | 1</div>
         <div><strong>Kitchen:</strong> bottom 1 section only</div>
-        <div><strong>Legal flick:</strong> release before leaving kitchen</div>
+        <div><strong>Flick:</strong> start in kitchen, shove through the line</div>
         <div><strong>Change:</strong> if a coin flips sides, it changes owner</div>
       </div>
     </div>
@@ -281,6 +281,7 @@
       dragStart: null,
       dragNow: null,
       flickSamples: [],
+      fadingTrails: [],
       animating: false,
       lastScored: false,
       winner: null,
@@ -295,11 +296,13 @@
     const KITCHEN_Y1 = 780;
     const KITCHEN_Y2 = 895;
     const FLICK_POWER = 0.38;
-    const MIN_FLICK_SPEED = 0.16;
-    const MAX_FLICK_SAMPLES = 10;
+    const MIN_FLICK_SPEED = 0.13;
+    const MAX_FLICK_SAMPLES = 14;
+    const TRAIL_FADE_MS = 950;
 
     let activePointerId = null;
     let lastPointerPoint = null;
+    let trailFadeLoop = null;
 
     const coinSprites = {};
 
@@ -485,6 +488,15 @@
         p.y <= KITCHEN_Y2 - COIN_R;
     }
 
+    function clampToLane(p) {
+      const b = laneBounds();
+
+      return {
+        x: Math.max(b.left, Math.min(b.right, p.x)),
+        y: Math.max(b.top, Math.min(b.bottom, p.y))
+      };
+    }
+
     function clampToKitchen(p) {
       const b = laneBounds();
 
@@ -492,6 +504,38 @@
         x: Math.max(b.left, Math.min(b.right, p.x)),
         y: Math.max(KITCHEN_Y1 + COIN_R, Math.min(KITCHEN_Y2 - COIN_R, p.y))
       };
+    }
+
+    function getKitchenLinePoint(samples) {
+      if (!samples || samples.length < 2) return null;
+
+      for (let i = 1; i < samples.length; i++) {
+        const a = samples[i - 1];
+        const b = samples[i];
+
+        if (a.y >= KITCHEN_Y1 && b.y <= KITCHEN_Y1) {
+          const dy = b.y - a.y;
+          const t = dy === 0 ? 0 : (KITCHEN_Y1 - a.y) / dy;
+
+          return {
+            x: a.x + (b.x - a.x) * t,
+            y: KITCHEN_Y1,
+            t: a.t + (b.t - a.t) * t
+          };
+        }
+      }
+
+      const last = samples[samples.length - 1];
+
+      if (last && last.y >= KITCHEN_Y1 && last.y <= KITCHEN_Y2) {
+        return {
+          x: last.x,
+          y: last.y,
+          t: last.t
+        };
+      }
+
+      return null;
     }
 
     function createShooterCoin() {
@@ -508,6 +552,7 @@
       state.dragStart = null;
       state.dragNow = null;
       state.flickSamples = [];
+      state.fadingTrails = [];
       state.illegalShot = false;
       activePointerId = null;
       lastPointerPoint = null;
@@ -535,9 +580,9 @@
       } else if (state.shotsTaken >= state.maxShots) {
         statusEl.textContent = 'All six coins are played. Tap Score Round.';
       } else if (state.dragging) {
-        statusEl.textContent = 'Flick forward and release before leaving the kitchen.';
+        statusEl.textContent = 'Shove through the kitchen line. Release naturally.';
       } else {
-        statusEl.textContent = `${state.currentPlayer === 'A' ? 'Player A' : 'Player B'} to shoot. Touch anywhere in the kitchen and flick.`;
+        statusEl.textContent = `${state.currentPlayer === 'A' ? 'Player A' : 'Player B'} to shoot. Touch in the kitchen and flick.`;
       }
     }
 
@@ -698,31 +743,62 @@
       ctx.restore();
     }
 
-    function drawFlickTrail() {
-      if (!state.dragging || state.flickSamples.length < 2) return;
+    function drawTrailPoints(points, alpha = 1) {
+      if (!points || points.length < 2) return;
 
       ctx.save();
-      ctx.strokeStyle = 'rgba(255, 209, 102, 0.65)';
+      ctx.strokeStyle = `rgba(255, 209, 102, ${0.72 * alpha})`;
       ctx.lineWidth = 4;
       ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
       ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
 
-      const samples = state.flickSamples;
-      ctx.moveTo(samples[0].x, samples[0].y);
-
-      for (let i = 1; i < samples.length; i++) {
-        ctx.lineTo(samples[i].x, samples[i].y);
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
       }
 
       ctx.stroke();
+
+      const linePoint = getKitchenLinePoint(points);
+      if (linePoint) {
+        ctx.beginPath();
+        ctx.arc(linePoint.x, linePoint.y, 6, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255, 255, 255, ${0.65 * alpha})`;
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(linePoint.x, linePoint.y, 9, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255, 209, 102, ${0.65 * alpha})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
       ctx.restore();
+    }
+
+    function drawFlickTrails() {
+      const now = performance.now();
+
+      state.fadingTrails = state.fadingTrails.filter(trail => now - trail.created < TRAIL_FADE_MS);
+
+      for (const trail of state.fadingTrails) {
+        const age = now - trail.created;
+        const alpha = Math.max(0, 1 - age / TRAIL_FADE_MS);
+        drawTrailPoints(trail.points, alpha);
+      }
+
+      if (state.dragging && state.flickSamples.length >= 2) {
+        drawTrailPoints(state.flickSamples, 1);
+      }
     }
 
     function draw() {
       drawBoard();
+      drawFlickTrails();
       state.coins.forEach(drawCoin);
       if (state.shotsTaken < state.maxShots && state.shooterCoin) drawCoin(state.shooterCoin);
-      drawFlickTrail();
     }
 
     function pointFromEvent(e) {
@@ -750,6 +826,35 @@
 
     function canShoot() {
       return !state.animating && !state.winner && state.shotsTaken < state.maxShots;
+    }
+
+    function startTrailFadeLoop() {
+      if (trailFadeLoop) return;
+
+      function fadeStep() {
+        trailFadeLoop = null;
+
+        const now = performance.now();
+        state.fadingTrails = state.fadingTrails.filter(trail => now - trail.created < TRAIL_FADE_MS);
+
+        if (state.fadingTrails.length > 0 && !state.animating) {
+          draw();
+          trailFadeLoop = requestAnimationFrame(fadeStep);
+        }
+      }
+
+      trailFadeLoop = requestAnimationFrame(fadeStep);
+    }
+
+    function saveReleaseTrail(points) {
+      if (!points || points.length < 2) return;
+
+      state.fadingTrails.push({
+        points: points.map(p => ({ x: p.x, y: p.y, t: p.t })),
+        created: performance.now()
+      });
+
+      startTrailFadeLoop();
     }
 
     function startDrag(e) {
@@ -792,18 +897,15 @@
       e.preventDefault();
 
       const p = pointFromEvent(e);
-      lastPointerPoint = p;
-      state.dragNow = p;
+      const clamped = clampToLane(p);
 
-      const clamped = clampToKitchen(p);
+      lastPointerPoint = clamped;
+      state.dragNow = clamped;
 
       state.shooterCoin.x = clamped.x;
       state.shooterCoin.y = clamped.y;
 
-      if (isPointInKitchen(p)) {
-        addFlickSample(p);
-      }
-
+      addFlickSample(clamped);
       draw();
     }
 
@@ -814,14 +916,11 @@
       e.preventDefault();
 
       const p = pointFromEvent(e);
-      const releasePoint = p || lastPointerPoint || state.dragNow;
+      const releasePoint = p ? clampToLane(p) : lastPointerPoint || state.dragNow;
 
-      if (!releasePoint || !isPointInKitchen(releasePoint)) {
-        cancelFlick('Illegal flick. Release must happen before the coin leaves the kitchen. Replay.');
-        return;
+      if (releasePoint) {
+        addFlickSample(releasePoint);
       }
-
-      addFlickSample(releasePoint);
 
       const samples = state.flickSamples;
 
@@ -830,11 +929,18 @@
         return;
       }
 
+      const linePoint = getKitchenLinePoint(samples);
+
+      if (!linePoint) {
+        cancelFlick('Flick needs to travel through the kitchen line. Try a forward shove.');
+        return;
+      }
+
       let last = samples[samples.length - 1];
-      let first = samples[Math.max(0, samples.length - 5)];
+      let first = samples[Math.max(0, samples.length - 6)];
 
       for (let i = samples.length - 1; i >= 0; i--) {
-        if (last.t - samples[i].t > 140) {
+        if (last.t - samples[i].t > 160) {
           first = samples[i];
           break;
         }
@@ -845,10 +951,12 @@
       const rawVy = (last.y - first.y) / elapsed;
       const rawSpeed = Math.hypot(rawVx, rawVy);
 
-      if (rawSpeed < MIN_FLICK_SPEED || rawVy >= -0.015) {
+      if (rawSpeed < MIN_FLICK_SPEED || rawVy >= -0.01) {
         cancelFlick('Too soft or wrong direction. Flick upward from the kitchen.');
         return;
       }
+
+      saveReleaseTrail(samples);
 
       let vx = rawVx * FLICK_POWER * 60;
       let vy = rawVy * FLICK_POWER * 60;
@@ -861,6 +969,10 @@
         vy *= scale;
       }
 
+      const b = laneBounds();
+
+      state.shooterCoin.x = Math.max(b.left, Math.min(b.right, linePoint.x));
+      state.shooterCoin.y = KITCHEN_Y1;
       state.shooterCoin.vx = vx;
       state.shooterCoin.vy = vy;
 
@@ -1057,6 +1169,10 @@
       state.animating = false;
       updateUi();
       draw();
+
+      if (state.fadingTrails.length > 0) {
+        startTrailFadeLoop();
+      }
     }
 
     function tick() {
