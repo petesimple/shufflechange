@@ -285,7 +285,8 @@
       animating: false,
       lastScored: false,
       winner: null,
-      illegalShot: false
+      illegalShot: false,
+      roundOverlay: null
     };
 
     const COIN_R = 18;
@@ -553,6 +554,7 @@
       state.dragNow = null;
       state.flickSamples = [];
       state.fadingTrails = [];
+      state.roundOverlay = null;
       state.illegalShot = false;
       activePointerId = null;
       lastPointerPoint = null;
@@ -565,20 +567,29 @@
       state.scores.A = 0;
       state.scores.B = 0;
       state.round = 1;
+      state.roundOverlay = null;
       resetRound();
     }
 
     function updateUi() {
       scoreAEl.textContent = state.scores.A;
       scoreBEl.textContent = state.scores.B;
-      roundInfoEl.textContent = `Round ${state.round} • Shot ${Math.min(state.shotsTaken + 1, state.maxShots)} of ${state.maxShots}`;
+
+      if (state.roundOverlay) {
+        roundInfoEl.textContent = `Round ${state.round} scored`;
+      } else {
+        roundInfoEl.textContent = `Round ${state.round} • Shot ${Math.min(state.shotsTaken + 1, state.maxShots)} of ${state.maxShots}`;
+      }
+
       playerAEl.classList.toggle('active', state.currentPlayer === 'A');
       playerBEl.classList.toggle('active', state.currentPlayer === 'B');
 
       if (state.winner) {
         statusEl.textContent = `${state.winner === 'A' ? 'Player A' : 'Player B'} wins the game.`;
+      } else if (state.roundOverlay) {
+        statusEl.textContent = 'Round scored. Tap the table overlay for the next round.';
       } else if (state.shotsTaken >= state.maxShots) {
-        statusEl.textContent = 'All six coins are played. Tap Score Round.';
+        statusEl.textContent = 'All six coins are played. Scoring round.';
       } else if (state.dragging) {
         statusEl.textContent = 'Shove through the kitchen line. Release naturally.';
       } else {
@@ -794,11 +805,140 @@
       }
     }
 
+    function drawRoundOverlay() {
+      if (!state.roundOverlay) return;
+
+      const laneX = board.x + board.gutter;
+      const laneW = board.w - board.gutter * 2;
+
+      const boxW = laneW - 24;
+      const boxH = state.roundOverlay.winner ? 270 : 236;
+      const boxX = laneX + 12;
+      const boxY = board.midY - boxH / 2;
+
+      ctx.save();
+
+      ctx.globalAlpha = 0.36;
+      ctx.fillStyle = '#000000';
+      roundRect(boxX - 10, boxY - 10, boxW + 20, boxH + 20, 24, '#000000');
+
+      ctx.globalAlpha = 0.96;
+      const panelGrad = ctx.createLinearGradient(boxX, boxY, boxX + boxW, boxY + boxH);
+      panelGrad.addColorStop(0, 'rgba(48, 33, 17, 0.98)');
+      panelGrad.addColorStop(0.45, 'rgba(22, 16, 10, 0.98)');
+      panelGrad.addColorStop(1, 'rgba(72, 45, 20, 0.98)');
+      roundRect(boxX, boxY, boxW, boxH, 20, panelGrad);
+
+      const goldGrad = ctx.createLinearGradient(boxX, boxY, boxX + boxW, boxY + boxH);
+      goldGrad.addColorStop(0, '#fff2b8');
+      goldGrad.addColorStop(0.28, '#ffd166');
+      goldGrad.addColorStop(0.62, '#b88732');
+      goldGrad.addColorStop(1, '#fff2b8');
+
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = goldGrad;
+      ctx.lineWidth = 4;
+      roundRectStroke(boxX, boxY, boxW, boxH, 20);
+
+      ctx.save();
+      ctx.globalAlpha = 0.16;
+      ctx.fillStyle = '#ffd166';
+      ctx.beginPath();
+      ctx.arc(boxX + boxW / 2, boxY + boxH / 2, boxW * 0.45, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = 0.15;
+      ctx.strokeStyle = '#fff2b8';
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 6; i++) {
+        ctx.beginPath();
+        ctx.moveTo(boxX + 18, boxY + 28 + i * 31);
+        ctx.lineTo(boxX + boxW - 18, boxY + 18 + i * 31);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      const centerX = boxX + boxW / 2;
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      ctx.fillStyle = '#fff2b8';
+      ctx.font = 'bold 18px Arial';
+      ctx.fillText(`ROUND ${state.roundOverlay.round}`, centerX, boxY + 29);
+
+      ctx.fillStyle = '#ffd166';
+      ctx.font = 'bold 24px Arial';
+      ctx.fillText('SCORE DROP', centerX, boxY + 58);
+
+      ctx.fillStyle = '#f6f0e7';
+      ctx.font = 'bold 54px Arial';
+      ctx.fillText(`${state.roundOverlay.scoreA} : ${state.roundOverlay.scoreB}`, centerX, boxY + 111);
+
+      ctx.font = 'bold 16px Arial';
+      ctx.fillStyle = 'rgba(255,255,255,0.86)';
+      ctx.fillText(`Heads +${state.roundOverlay.roundA}   Tails +${state.roundOverlay.roundB}`, centerX, boxY + 156);
+
+      ctx.save();
+      const coinY = boxY + 187;
+      drawMiniOverlayCoin(centerX - 42, coinY, 'A');
+      drawMiniOverlayCoin(centerX + 42, coinY, 'B');
+      ctx.restore();
+
+      if (state.roundOverlay.winner) {
+        ctx.font = 'bold 25px Arial';
+        ctx.fillStyle = '#7ed957';
+        ctx.fillText(`${state.roundOverlay.winner === 'A' ? 'HEADS' : 'TAILS'} WINS`, centerX, boxY + 222);
+
+        ctx.font = 'bold 14px Arial';
+        ctx.fillStyle = 'rgba(255,255,255,0.82)';
+        ctx.fillText('Tap to start a new game', centerX, boxY + 250);
+      } else {
+        ctx.font = 'bold 14px Arial';
+        ctx.fillStyle = 'rgba(255,255,255,0.82)';
+        ctx.fillText('Tap this table card for next round', centerX, boxY + 219);
+      }
+
+      ctx.restore();
+    }
+
+    function drawMiniOverlayCoin(x, y, owner) {
+      ctx.save();
+
+      const r = 14;
+      const grad = ctx.createRadialGradient(x - 4, y - 5, 2, x, y, r);
+      grad.addColorStop(0, '#fff8d8');
+      grad.addColorStop(0.45, '#d9c174');
+      grad.addColorStop(1, '#6f5524');
+
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = owner === 'A' ? 'rgba(46,134,222,0.95)' : 'rgba(230,126,34,0.95)';
+      ctx.stroke();
+
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 10px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(owner, x, y + 0.5);
+
+      ctx.restore();
+    }
+
     function draw() {
       drawBoard();
       drawFlickTrails();
       state.coins.forEach(drawCoin);
-      if (state.shotsTaken < state.maxShots && state.shooterCoin) drawCoin(state.shooterCoin);
+      if (state.shotsTaken < state.maxShots && state.shooterCoin && !state.roundOverlay) {
+        drawCoin(state.shooterCoin);
+      }
+      drawRoundOverlay();
     }
 
     function pointFromEvent(e) {
@@ -825,7 +965,7 @@
     }
 
     function canShoot() {
-      return !state.animating && !state.winner && state.shotsTaken < state.maxShots;
+      return !state.animating && !state.winner && !state.roundOverlay && state.shotsTaken < state.maxShots;
     }
 
     function startTrailFadeLoop() {
@@ -857,7 +997,28 @@
       startTrailFadeLoop();
     }
 
+    function handleRoundOverlayTap() {
+      if (!state.roundOverlay) return false;
+
+      if (state.roundOverlay.winner) {
+        state.roundOverlay = null;
+        newGame();
+        return true;
+      }
+
+      state.roundOverlay = null;
+      state.round += 1;
+      resetRound();
+      return true;
+    }
+
     function startDrag(e) {
+      if (state.roundOverlay) {
+        e.preventDefault();
+        handleRoundOverlayTap();
+        return;
+      }
+
       if (!canShoot()) return;
 
       e.preventDefault();
@@ -1164,9 +1325,15 @@
         state.currentPlayer = state.currentPlayer === 'A' ? 'B' : 'A';
       }
 
-      if (state.shotsTaken < state.maxShots) createShooterCoin();
-
       state.animating = false;
+
+      if (state.shotsTaken >= state.maxShots) {
+        updateUi();
+        scoreRound();
+        return;
+      }
+
+      createShooterCoin();
       updateUi();
       draw();
 
@@ -1226,7 +1393,7 @@
       }
 
       if (state.lastScored) {
-        statusEl.textContent = 'Round already scored. Start next round or new game.';
+        statusEl.textContent = 'Round already scored. Tap the table overlay for the next round.';
         return;
       }
 
@@ -1251,15 +1418,30 @@
 
       if ((state.scores.A >= 21 || state.scores.B >= 21) && lead >= 2) {
         state.winner = state.scores.A > state.scores.B ? 'A' : 'B';
-        statusEl.textContent = `Round scored. A +${roundA}, B +${roundB}. ${state.winner === 'A' ? 'Player A' : 'Player B'} wins.`;
+        statusEl.textContent = `Round scored. ${state.winner === 'A' ? 'Player A' : 'Player B'} wins.`;
       } else {
-        statusEl.textContent = `Round scored. A +${roundA}, B +${roundB}. Tap Reset Round for next round.`;
+        statusEl.textContent = 'Round scored. Tap the table overlay for the next round.';
       }
 
+      state.roundOverlay = {
+        round: state.round,
+        roundA,
+        roundB,
+        scoreA: state.scores.A,
+        scoreB: state.scores.B,
+        winner: state.winner
+      };
+
       updateUi();
+      draw();
     }
 
     function nextRound() {
+      if (state.roundOverlay) {
+        handleRoundOverlayTap();
+        return;
+      }
+
       if (state.winner) return;
 
       if (!state.lastScored) {
@@ -1274,6 +1456,11 @@
     nextRoundBtn.addEventListener('click', nextRound);
 
     resetRoundBtn.addEventListener('click', () => {
+      if (state.roundOverlay) {
+        handleRoundOverlayTap();
+        return;
+      }
+
       if (!state.lastScored && state.shotsTaken > 0) {
         if (!confirm('Reset this round and clear all current coins?')) return;
       }
