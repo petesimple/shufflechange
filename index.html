@@ -90,8 +90,28 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 8px;
       font-weight: 700;
       margin-bottom: 6px;
+    }
+
+    .nameInput {
+      min-width: 0;
+      width: 100%;
+      max-width: 190px;
+      border: 0;
+      outline: 0;
+      border-radius: 10px;
+      padding: 7px 9px;
+      background: rgba(0,0,0,0.22);
+      color: #f6f0e7;
+      font: inherit;
+      font-weight: 800;
+    }
+
+    .nameInput:focus {
+      background: rgba(0,0,0,0.36);
+      box-shadow: 0 0 0 2px var(--warn);
     }
 
     .badge {
@@ -99,6 +119,7 @@
       padding: 4px 8px;
       border-radius: 999px;
       color: white;
+      white-space: nowrap;
     }
 
     .heads { background: var(--heads); }
@@ -196,7 +217,7 @@
 
       <div id="playerA" class="playerCard active">
         <div class="playerLabel">
-          <span>Player A</span>
+          <input id="nameA" class="nameInput" value="Player A" aria-label="Player A name" />
           <span class="badge heads">Heads</span>
         </div>
         <div class="score" id="scoreA">0</div>
@@ -204,7 +225,7 @@
 
       <div id="playerB" class="playerCard">
         <div class="playerLabel">
-          <span>Player B</span>
+          <input id="nameB" class="nameInput" value="Player B" aria-label="Player B name" />
           <span class="badge tails">Tails</span>
         </div>
         <div class="score" id="scoreB">0</div>
@@ -245,6 +266,8 @@
     const roundInfoEl = document.getElementById('roundInfo');
     const playerAEl = document.getElementById('playerA');
     const playerBEl = document.getElementById('playerB');
+    const nameAEl = document.getElementById('nameA');
+    const nameBEl = document.getElementById('nameB');
     const nextRoundBtn = document.getElementById('nextRoundBtn');
     const resetRoundBtn = document.getElementById('resetRoundBtn');
     const newGameBtn = document.getElementById('newGameBtn');
@@ -306,6 +329,33 @@
     let trailFadeLoop = null;
 
     const coinSprites = {};
+
+    function getPlayerName(player) {
+      const el = player === 'A' ? nameAEl : nameBEl;
+      const fallback = player === 'A' ? 'Player A' : 'Player B';
+      return el.value.trim() || fallback;
+    }
+
+    function getSideName(player) {
+      return player === 'A' ? 'Heads' : 'Tails';
+    }
+
+    function getDisplayName(player) {
+      return `${getPlayerName(player)} (${getSideName(player)})`;
+    }
+
+    function savePlayerNames() {
+      localStorage.setItem('shufflechangeNameA', nameAEl.value);
+      localStorage.setItem('shufflechangeNameB', nameBEl.value);
+    }
+
+    function loadPlayerNames() {
+      const savedA = localStorage.getItem('shufflechangeNameA');
+      const savedB = localStorage.getItem('shufflechangeNameB');
+
+      if (savedA) nameAEl.value = savedA;
+      if (savedB) nameBEl.value = savedB;
+    }
 
     function makeCoinSprite(face, owner) {
       const size = 72;
@@ -585,7 +635,7 @@
       playerBEl.classList.toggle('active', state.currentPlayer === 'B');
 
       if (state.winner) {
-        statusEl.textContent = `${state.winner === 'A' ? 'Player A' : 'Player B'} wins the game.`;
+        statusEl.textContent = `${getDisplayName(state.winner)} wins the game.`;
       } else if (state.roundOverlay) {
         statusEl.textContent = 'Round scored. Tap the table overlay for the next round.';
       } else if (state.shotsTaken >= state.maxShots) {
@@ -593,7 +643,7 @@
       } else if (state.dragging) {
         statusEl.textContent = 'Shove through the kitchen line. Release naturally.';
       } else {
-        statusEl.textContent = `${state.currentPlayer === 'A' ? 'Player A' : 'Player B'} to shoot. Touch in the kitchen and flick.`;
+        statusEl.textContent = `${getDisplayName(state.currentPlayer)} to shoot. Touch in the kitchen and flick.`;
       }
     }
 
@@ -805,6 +855,16 @@
       }
     }
 
+    function fitText(text, maxWidth, baseSize, minSize = 10) {
+      let size = baseSize;
+      ctx.font = `bold ${size}px Arial`;
+
+      while (ctx.measureText(text).width > maxWidth && size > minSize) {
+        size -= 1;
+        ctx.font = `bold ${size}px Arial`;
+      }
+    }
+
     function drawRoundOverlay() {
       if (!state.roundOverlay) return;
 
@@ -877,9 +937,10 @@
       ctx.font = 'bold 54px Arial';
       ctx.fillText(`${state.roundOverlay.scoreA} : ${state.roundOverlay.scoreB}`, centerX, boxY + 111);
 
-      ctx.font = 'bold 16px Arial';
+      const roundLine = `${getPlayerName('A')} +${state.roundOverlay.roundA}   ${getPlayerName('B')} +${state.roundOverlay.roundB}`;
       ctx.fillStyle = 'rgba(255,255,255,0.86)';
-      ctx.fillText(`Heads +${state.roundOverlay.roundA}   Tails +${state.roundOverlay.roundB}`, centerX, boxY + 156);
+      fitText(roundLine, boxW - 28, 16, 10);
+      ctx.fillText(roundLine, centerX, boxY + 156);
 
       ctx.save();
       const coinY = boxY + 187;
@@ -888,9 +949,10 @@
       ctx.restore();
 
       if (state.roundOverlay.winner) {
-        ctx.font = 'bold 25px Arial';
+        const winnerText = `${getPlayerName(state.roundOverlay.winner).toUpperCase()} WINS`;
         ctx.fillStyle = '#7ed957';
-        ctx.fillText(`${state.roundOverlay.winner === 'A' ? 'HEADS' : 'TAILS'} WINS`, centerX, boxY + 222);
+        fitText(winnerText, boxW - 28, 25, 12);
+        ctx.fillText(winnerText, centerX, boxY + 222);
 
         ctx.font = 'bold 14px Arial';
         ctx.fillStyle = 'rgba(255,255,255,0.82)';
@@ -1418,7 +1480,7 @@
 
       if ((state.scores.A >= 21 || state.scores.B >= 21) && lead >= 2) {
         state.winner = state.scores.A > state.scores.B ? 'A' : 'B';
-        statusEl.textContent = `Round scored. ${state.winner === 'A' ? 'Player A' : 'Player B'} wins.`;
+        statusEl.textContent = `Round scored. ${getDisplayName(state.winner)} wins.`;
       } else {
         statusEl.textContent = 'Round scored. Tap the table overlay for the next round.';
       }
@@ -1475,6 +1537,18 @@
       newGame();
     });
 
+    nameAEl.addEventListener('input', () => {
+      savePlayerNames();
+      updateUi();
+      draw();
+    });
+
+    nameBEl.addEventListener('input', () => {
+      savePlayerNames();
+      updateUi();
+      draw();
+    });
+
     canvas.addEventListener('pointerdown', startDrag, { passive: false });
     canvas.addEventListener('pointermove', moveDrag, { passive: false });
     canvas.addEventListener('pointerup', endDrag, { passive: false });
@@ -1484,6 +1558,7 @@
       }
     }, { passive: false });
 
+    loadPlayerNames();
     newGame();
   </script>
 </body>
