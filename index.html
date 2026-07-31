@@ -81,8 +81,8 @@
 <body>
   <div class="shell">
     <header>
-      <h1><small>Pass the board by link</small>Shuffle Change</h1>
-      <div class="tagline">One flick. One link. Your opponent watches the move, inherits the exact board, and fires back.</div>
+      <h1><small>Across town or across the table</small>Shuffle Change</h1>
+      <div class="tagline">Text each flick by link, or pass one phone back and forth for an in-person game.</div>
     </header>
 
     <main class="layout">
@@ -112,12 +112,17 @@
 
   <section id="setup" class="setup">
     <div class="setup-card stack">
-      <div class="eyebrow">New link game</div>
+      <div class="eyebrow">New game</div>
       <h2>Name the players</h2>
-      <p>You’ll take the first flick from the side you choose. Each link automatically becomes the other player’s copy of the game.</p>
-      <label>Your name<input id="creatorName" maxlength="24" value="Player A"></label>
-      <label>Opponent’s name<input id="opponentName" maxlength="24" value="Player B"></label>
-      <label>Your coin side</label>
+      <p id="setupText">You’ll take the first flick from the side you choose. Each link automatically becomes the other player’s copy of the game.</p>
+      <label>How are you playing?</label>
+      <div class="choice">
+        <button id="chooseLink" class="secondary selected">Text by link</button>
+        <button id="choosePass" class="secondary">Pass &amp; play</button>
+      </div>
+      <label><span id="creatorLabel">Your name</span><input id="creatorName" maxlength="24" value="Player A"></label>
+      <label><span id="opponentLabel">Opponent’s name</span><input id="opponentName" maxlength="24" value="Player B"></label>
+      <label id="sidePrompt">Your coin side</label>
       <div class="choice">
         <button id="chooseA" class="secondary selected">Heads · Blue</button>
         <button id="chooseB" class="secondary">Tails · Orange</button>
@@ -135,6 +140,14 @@
       <button id="continueBtn">Clear the table &amp; continue</button>
     </div>
   </section>
+  <section id="passModal" class="modal hidden">
+    <div class="modal-card stack">
+      <div class="eyebrow">Pass &amp; play</div>
+      <h2>Pass the phone</h2>
+      <p id="passMessage">The next player is up.</p>
+      <button id="passReadyBtn">I have the phone — ready</button>
+    </div>
+  </section>
   <div id="toast" class="toast hidden" role="status"></div>
 
   <script>
@@ -149,13 +162,13 @@
     ];
     const STEP=1000/60, FRICTION=.986, STOP=.075, MAX_SPEED=19, RECORD_EVERY=5;
     const STORAGE="shuffleChange1v1.v1";
-    let selectedSide="A", pointer=null, drag=[], accumulator=0, lastTime=0, raf=0, recorder=null;
+    let selectedSide="A", selectedMode="link", pointer=null, drag=[], accumulator=0, lastTime=0, raf=0, recorder=null;
     let state=freshState();
 
     function freshState(){
-      return {version:1,gameId:"",names:{A:"Player A",B:"Player B"},scores:{A:0,B:0},
+      return {version:1,gameId:"",mode:"link",names:{A:"Player A",B:"Player B"},scores:{A:0,B:0},
         round:1,shots:0,current:"A",local:"A",coins:[],nextId:1,winner:null,
-        readyToShare:false,replaying:false,lastReplay:null,roundSummary:null,pendingClear:false};
+        readyToShare:false,replaying:false,lastReplay:null,roundSummary:null,pendingClear:false,passPending:false};
     }
     const clone=o=>JSON.parse(JSON.stringify(o));
     const other=p=>p==="A"?"B":"A";
@@ -163,44 +176,52 @@
     const q=n=>Math.round(n*10)/10;
     function coinCopy(c){return {id:c.id,x:q(c.x),y:q(c.y),vx:q(c.vx||0),vy:q(c.vy||0),owner:c.owner,face:c.face,crossed:!!c.crossed};}
     function coreSnapshot(){
-      return {version:1,gameId:state.gameId,names:clone(state.names),scores:clone(state.scores),
+      return {version:1,gameId:state.gameId,mode:state.mode,names:clone(state.names),scores:clone(state.scores),
         round:state.round,shots:state.shots,current:state.current,coins:state.coins.map(coinCopy),
         nextId:state.nextId,winner:state.winner,roundSummary:clone(state.roundSummary),
-        pendingClear:state.pendingClear};
+        pendingClear:state.pendingClear,passPending:state.passPending};
     }
     function restoreCore(s){
-      Object.assign(state,{version:1,gameId:s.gameId,names:s.names,scores:s.scores,round:s.round,
+      Object.assign(state,{version:1,gameId:s.gameId,mode:s.mode||"link",names:s.names,scores:s.scores,round:s.round,
         shots:s.shots,current:s.current,coins:s.coins||[],nextId:s.nextId||1,winner:s.winner||null,
-        roundSummary:s.roundSummary||null,pendingClear:!!s.pendingClear});
+        roundSummary:s.roundSummary||null,pendingClear:!!s.pendingClear,passPending:!!s.passPending});
     }
     function randomCode(){return Array.from(crypto.getRandomValues(new Uint8Array(4)),n=>"ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[n%32]).join("");}
 
     function updateUI(){
       $("nameAView").textContent=state.names.A; $("nameBView").textContent=state.names.B;
       $("scoreA").textContent=state.scores.A; $("scoreB").textContent=state.scores.B;
-      $("gameCode").textContent=state.gameId?`#${state.gameId}`:"—";
+      $("gameCode").textContent=state.gameId?(state.mode==="pass"?"PASS & PLAY":`#${state.gameId}`):"—";
       $("roundLine").textContent=`Round ${state.round} · Flick ${Math.min(state.shots+1,6)} of 6`;
       for(const p of ["A","B"]){
         $(`player${p}`).classList.toggle("active",state.current===p);
-        $(`player${p}`).classList.toggle("you",state.local===p);
+        $(`player${p}`).classList.toggle("you",state.mode==="link"&&state.local===p);
       }
-      const yourTurn=state.local===state.current;
+      const passMode=state.mode==="pass",yourTurn=passMode||state.local===state.current;
+      $("shareBtn").classList.toggle("hidden",passMode);
+      $("copyBtn").classList.toggle("hidden",passMode);
+      $("replayBtn").classList.toggle("wide",passMode);
       $("shareBtn").disabled=!state.readyToShare;
       $("copyBtn").disabled=!state.readyToShare;
       $("replayBtn").disabled=!state.lastReplay||state.replaying;
       let title="Your turn", msg=`${state.names[state.local]}, flick upward from the kitchen.`;
-      if(state.replaying){title="Incoming flick";msg=`Watching ${state.names[state.lastReplay.player]}'s move…`;}
-      else if(state.winner){title=`${state.names[state.winner]} wins`;msg="Start a new text game for a rematch.";}
+      if(state.replaying){title="Previous flick";msg=`Watching ${state.names[state.lastReplay.player]}'s move…`;}
+      else if(state.winner){title=`${state.names[state.winner]} wins`;msg="Start a new game for a rematch.";}
       else if(state.readyToShare){title="Flick complete";msg=`Send this turn to ${state.names[state.current]}. Your board is locked until they send a move back.`;}
+      else if(state.passPending){title="Pass the phone";msg=`${state.names[state.current]} is next.`;}
       else if(state.roundSummary){title="Round scored";msg="Review the score drop, then continue.";}
       else if(!yourTurn){title="Waiting on opponent";msg=`It is ${state.names[state.current]}'s turn.`;}
+      else if(passMode){title=`${state.names[state.current]}'s turn`;msg="Flick upward from the kitchen.";}
       $("status").innerHTML=`<strong>${escapeHtml(title)}</strong>${escapeHtml(msg)}`;
       $("replayBadge").classList.toggle("hidden",!state.replaying);
       saveLocal();
       draw();
     }
     function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
-    function canShoot(){return state.gameId&&!state.replaying&&!state.readyToShare&&!state.winner&&!state.roundSummary&&!state.pendingClear&&state.local===state.current&&!raf;}
+    function canShoot(){
+      const ownsTurn=state.mode==="pass"||state.local===state.current;
+      return state.gameId&&!state.replaying&&!state.readyToShare&&!state.passPending&&!state.winner&&!state.roundSummary&&!state.pendingClear&&ownsTurn&&!raf;
+    }
 
     function draw(){
       ctx.clearRect(0,0,W,H);
@@ -291,7 +312,14 @@
       state.lastReplay={player,before:recorder.before,frames:recorder.frames,after:state.coins.map(coinCopy)};
       recorder=null;
       if(state.shots===6)scoreRound();
-      state.readyToShare=true;updateUI();
+      if(state.mode==="pass"){
+        state.readyToShare=false;
+        state.passPending=!state.roundSummary;
+        updateUI();
+        if(state.roundSummary)showRoundModal();else showPassModal();
+      }else{
+        state.readyToShare=true;updateUI();
+      }
     }
     function coinScore(c){
       if(c.x-R<lane.l||c.x+R>lane.r)return 0;
@@ -353,21 +381,31 @@
       $("continueBtn").textContent=s.winner?"Start a rematch":"Clear the table & continue";
       $("roundModal").classList.remove("hidden");
     }
+    function showPassModal(){
+      if(state.mode!=="pass"||!state.passPending)return;
+      $("passMessage").textContent=`Hand the phone to ${state.names[state.current]}. Their ${state.current==="A"?"Heads":"Tails"} coin is next.`;
+      $("passReadyBtn").textContent=`${state.names[state.current]} is ready`;
+      $("passModal").classList.remove("hidden");
+    }
+    function acceptPass(){
+      state.passPending=false;$("passModal").classList.add("hidden");updateUI();
+    }
     function continueRound(){
       if(state.readyToShare)return;
       if(state.winner){$("roundModal").classList.add("hidden");openSetup();return}
       state.coins=[];state.shots=0;state.round++;state.roundSummary=null;state.pendingClear=false;
-      $("roundModal").classList.add("hidden");updateUI();
+      state.passPending=state.mode==="pass";
+      $("roundModal").classList.add("hidden");updateUI();if(state.passPending)showPassModal();
     }
     function createGame(){
       const me=cleanName($("creatorName").value,"Player A"),them=cleanName($("opponentName").value,"Player B");
-      state=freshState();state.gameId=randomCode();state.local=selectedSide;state.current=selectedSide;
+      state=freshState();state.gameId=randomCode();state.mode=selectedMode;state.local=selectedSide;state.current=selectedSide;
       state.names[selectedSide]=me;state.names[other(selectedSide)]=them;
       $("setup").classList.add("hidden");clearTurnHash();updateUI();
     }
     function openSetup(){
       if(raf){cancelAnimationFrame(raf);raf=0}
-      $("roundModal").classList.add("hidden");$("setup").classList.remove("hidden");
+      $("roundModal").classList.add("hidden");$("passModal").classList.add("hidden");$("setup").classList.remove("hidden");
       $("resumeBtn").classList.toggle("hidden",!localStorage.getItem(STORAGE));
     }
     function saveLocal(){
@@ -375,7 +413,7 @@
       try{localStorage.setItem(STORAGE,JSON.stringify({...coreSnapshot(),local:state.local,readyToShare:state.readyToShare,lastReplay:state.lastReplay}))}catch{}
     }
     function resume(){
-      try{const s=JSON.parse(localStorage.getItem(STORAGE));state=freshState();restoreCore(s);state.local=s.local;state.readyToShare=!!s.readyToShare;state.lastReplay=s.lastReplay||null;$("setup").classList.add("hidden");updateUI();if(state.roundSummary&&!state.readyToShare)showRoundModal();}catch{toast("Saved game could not be opened.");}
+      try{const s=JSON.parse(localStorage.getItem(STORAGE));state=freshState();restoreCore(s);state.local=s.local;state.readyToShare=!!s.readyToShare;state.lastReplay=s.lastReplay||null;$("setup").classList.add("hidden");updateUI();if(state.roundSummary&&!state.readyToShare)showRoundModal();else if(state.passPending)showPassModal();}catch{toast("Saved game could not be opened.");}
     }
     async function importTurn(){
       const match=location.hash.match(/^#sc=(.+)$/);if(!match)return false;
@@ -388,12 +426,24 @@
     }
     function clearTurnHash(){try{history.replaceState(null,"",location.pathname)}catch{}}
     function toast(msg){$("toast").textContent=msg;$("toast").classList.remove("hidden");clearTimeout(toast.t);toast.t=setTimeout(()=>$("toast").classList.add("hidden"),2600);}
+    function chooseMode(mode){
+      selectedMode=mode;const pass=mode==="pass";
+      $("chooseLink").classList.toggle("selected",!pass);$("choosePass").classList.toggle("selected",pass);
+      $("setupText").textContent=pass
+        ?"Play together on one phone. After every legal flick, the game pauses until the next player has the phone."
+        :"You’ll take the first flick from the side you choose. Each link automatically becomes the other player’s copy of the game.";
+      $("creatorLabel").textContent=pass?"Player 1 name":"Your name";
+      $("opponentLabel").textContent=pass?"Player 2 name":"Opponent’s name";
+      $("sidePrompt").textContent=pass?"Who flicks first?":"Your coin side";
+      $("createBtn").textContent=pass?"Start pass & play":"Create game & take first flick";
+    }
 
+    $("chooseLink").onclick=()=>chooseMode("link");$("choosePass").onclick=()=>chooseMode("pass");
     $("chooseA").onclick=()=>{selectedSide="A";$("chooseA").classList.add("selected");$("chooseB").classList.remove("selected")};
     $("chooseB").onclick=()=>{selectedSide="B";$("chooseB").classList.add("selected");$("chooseA").classList.remove("selected")};
     $("createBtn").onclick=createGame;$("resumeBtn").onclick=resume;$("newBtn").onclick=openSetup;
     $("shareBtn").onclick=()=>handoff(true);$("copyBtn").onclick=()=>handoff(false);
-    $("replayBtn").onclick=replayLast;$("continueBtn").onclick=continueRound;
+    $("replayBtn").onclick=replayLast;$("continueBtn").onclick=continueRound;$("passReadyBtn").onclick=acceptPass;
     draw();$("resumeBtn").classList.toggle("hidden",!localStorage.getItem(STORAGE));
     importTurn();
   })();
